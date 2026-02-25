@@ -1,0 +1,22 @@
+# Podcast Copilot - Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Mac menu bar
+rumps>=0.4.0
+
+# Audio capture & processing
+sounddevice>=0.4.6
+numpy>=1.24.0
+
+# OpenAI API (Whisper + GPT-4o)
+# NOTE: Only called when you say "explain that" — never during passive listening
+openai>=1.0.0
+
+# Recommended: Porcupine on-device wake word detection
+# pip install pvporcupine
+# Get free key at https://console.picovoice.ai/
+pvporcupine>=3.0.0
+
+# Optional: local/offline transcription (replaces Whisper API, no cost)
+# pip install faster-whisper
+# faster-whisper>=0.9.0
