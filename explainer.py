@@ -11,8 +11,9 @@ Rules:
 - 1-2 sentences max, no exceptions
 - No markdown, bullet points, or special characters
 - Speak naturally and directly, no filler like "Sure!" or "Great question!"
-- If the user specified a topic: explain ONLY that topic as it relates to the podcast context
-- If no topic specified: explain the main concept most recently discussed
+- No intro like "Based on the transcript, here's an explanation:" — just jump straight to the explanation
+- Give background about things/people/concepts mentioned in the transcript but dont repeat the transcript text
+- If the user asked about a specific topic, focus on that in your explanation
 """
 
 
@@ -42,12 +43,10 @@ class Explainer:
             user_message = (
                 f"Recent podcast transcript:\n---\n{transcript_context}\n---\n\n"
                 f'The listener asked: "{focus}"\n'
-                f"Explain it in 1-2 sentences, informed by the podcast context above."
             )
         else:
             user_message = (
                 f"Recent podcast transcript:\n---\n{transcript_context}\n---\n\n"
-                f"Explain the main topic just discussed. 1-2 sentences only."
             )
 
         try:

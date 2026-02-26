@@ -32,10 +32,13 @@ class Transcriber:
             self._client = OpenAI(api_key=api_key)
         return self._client
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def transcribe(self, audio: np.ndarray, prompt: str = None, language: str = None) -> str:
         """
         Transcribe a numpy float32 audio array (mono, 16kHz).
         Returns transcribed text or empty string.
+        prompt: optional hint to guide Whisper's language model (improves short-command accuracy).
+        language: override instance language (e.g. "en") — important for short clips where
+                  auto-detection is unreliable.
         """
         if audio is None or len(audio) == 0:
             return ""
@@ -59,8 +62,11 @@ class Transcriber:
                 "file": wav_buffer,
                 "response_format": "text",
             }
-            if self.language:
-                kwargs["language"] = self.language
+            lang = language or self.language
+            if lang:
+                kwargs["language"] = lang
+            if prompt:
+                kwargs["prompt"] = prompt
 
             response = self.client.audio.transcriptions.create(**kwargs)
             return response if isinstance(response, str) else str(response)

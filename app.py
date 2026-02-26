@@ -1,9 +1,9 @@
 """
 Podcast Copilot - Mac Menu Bar App
-New architecture:
+Architecture:
   - System audio is buffered locally in RAM (never sent anywhere)
   - Microphone uses on-device Porcupine wake word detection (no API)
-  - Only when you say "explain that": last 2 min of buffered audio → Whisper → GPT-4o
+  - Only when you say "explain that": buffered audio → Whisper → GPT-4o
 """
 
 import threading
@@ -22,7 +22,9 @@ from transcriber import Transcriber
 from explainer import Explainer
 
 SAMPLE_RATE = 16000
-BUFFER_DURATION_SECONDS = 120  # 2 minutes kept in RAM
+BUFFER_DURATION_SECONDS = 20
+CAPTURE_USER_COMMAND_DURATION = 3.0
+
 
 
 class PodcastCopilot(rumps.App):
@@ -153,7 +155,7 @@ class PodcastCopilot(rumps.App):
         print("Wake word detected — triggering explanation")
         threading.Thread(target=self._do_explain, daemon=True).start()
 
-    def _capture_user_command(self, duration=2.0):
+    def _capture_user_command(self, duration=4.0):
         """Record a short mic clip to capture what the user said after the wake word."""
         import sounddevice as sd
         default_device = sd.query_devices(kind="input")
@@ -180,12 +182,15 @@ class PodcastCopilot(rumps.App):
         """
         self.is_explaining = True
 
-        # Capture what the user said after the wake word (e.g., "explain nazis")
-        self.set_status("Listening...", "👂")
-        user_command_audio = self._capture_user_command(duration=2.0)
+        # Pause media first so podcast audio doesn't bleed into mic command capture
+        self._control_media("pause")  # let audio fully stop
 
-        # Pause media
-        self._control_media("pause")
+        # Chime signals the user to speak their command
+        self.set_status("Listening...", "👂")
+        subprocess.Popen(["afplay", "/System/Library/Sounds/Tink.aiff"])
+
+        # Capture user command now that it's quiet
+        user_command_audio = self._capture_user_command(duration=CAPTURE_USER_COMMAND_DURATION)
         self.set_status("Transcribing...", "⏳")
 
         # Snapshot the buffered audio RIGHT NOW before it rolls further
@@ -223,7 +228,11 @@ class PodcastCopilot(rumps.App):
         # Transcribe user's spoken command to extract optional focus topic
         focus = None
         try:
-            user_command = self.transcriber.transcribe(user_command_audio).strip()
+            user_command = self.transcriber.transcribe(
+                user_command_audio,
+                prompt="explain, what is, tell me about, who is, why did, how does",
+                language="en"
+            ).strip()
             print(f"User command: {user_command!r}")
             if user_command:
                 focus = user_command
@@ -257,8 +266,8 @@ class PodcastCopilot(rumps.App):
         script = 'tell application "System Events" to key code 16'
         try:
             subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
-        except Exception as e:
-            print(f"Media key failed: {e}, trying Spotify AppleScript...")
+        except Exception:
+            pass  # No Accessibility permission — Spotify AppleScript fallback below
             applescript = (
                 'tell application "Spotify" to pause'
                 if action == "pause"

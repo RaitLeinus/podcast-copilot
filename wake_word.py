@@ -109,7 +109,7 @@ class FallbackWakeWordDetector:
     """
 
     ENERGY_THRESHOLD = 0.01     # RMS energy to consider "speech" (tune if needed)
-    TRIGGER_SECONDS = 1.2       # How long speech must be sustained to trigger
+    TRIGGER_SECONDS = 0.5       # How long speech must be sustained to trigger
     COOLDOWN_SECONDS = 3.0      # Minimum time between triggers
     SAMPLE_RATE = 16000
     CHUNK_SECONDS = 0.1
