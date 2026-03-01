@@ -56,6 +56,7 @@ class PorcupineWakeWordDetector:
         )
         self.callback = callback
         self._running = False
+        self._paused = False
         self._thread = None
         print(f"✓ Porcupine loaded — wake word model: {keyword_path}")
 
@@ -69,26 +70,37 @@ class PorcupineWakeWordDetector:
         if hasattr(self, "porcupine"):
             self.porcupine.delete()
 
+    def pause(self):
+        """Close the mic stream temporarily (e.g. while command is being recorded)."""
+        self._paused = True
+
+    def resume(self):
+        self._paused = False
+
     def _run(self):
         frame_length = self.porcupine.frame_length
         sample_rate = self.porcupine.sample_rate
 
-        print(f"✓ Porcupine listening on mic (frame={frame_length}, sr={sample_rate})")
+        while self._running:
+            if self._paused:
+                time.sleep(0.05)
+                continue
 
-        with sd.InputStream(
-            samplerate=sample_rate,
-            channels=1,
-            dtype="int16",
-            blocksize=frame_length,
-            device=None  # default mic
-        ) as stream:
-            while self._running:
-                pcm, _ = stream.read(frame_length)
-                pcm_flat = pcm.flatten()
-                result = self.porcupine.process(pcm_flat)
-                if result >= 0:
-                    print("✓ Porcupine: wake word detected!")
-                    self.callback()
+            print(f"✓ Porcupine listening on mic (frame={frame_length}, sr={sample_rate})")
+            with sd.InputStream(
+                samplerate=sample_rate,
+                channels=1,
+                dtype="int16",
+                blocksize=frame_length,
+                device=None
+            ) as stream:
+                while self._running and not self._paused:
+                    pcm, _ = stream.read(frame_length)
+                    pcm_flat = pcm.flatten()
+                    result = self.porcupine.process(pcm_flat)
+                    if result >= 0:
+                        print("✓ Porcupine: wake word detected!")
+                        self.callback()
 
 
 # ─── Fallback (no setup needed) ─────────────────────────────────────────────
@@ -117,6 +129,7 @@ class FallbackWakeWordDetector:
     def __init__(self, callback):
         self.callback = callback
         self._running = False
+        self._paused = False
         self._thread = None
         self._last_triggered = 0.0
         print("⚠  Using fallback energy-based wake detector.")
@@ -131,41 +144,53 @@ class FallbackWakeWordDetector:
     def stop(self):
         self._running = False
 
+    def pause(self):
+        """Close the mic stream temporarily (e.g. while command is being recorded)."""
+        self._paused = True
+
+    def resume(self):
+        self._paused = False
+
     def _run(self):
         chunk_size = int(self.SAMPLE_RATE * self.CHUNK_SECONDS)
-        speech_duration = 0.0
 
-        audio_q = queue.Queue()
+        while self._running:
+            if self._paused:
+                time.sleep(0.05)
+                continue
 
-        def mic_callback(indata, frames, t, status):
-            audio_q.put(indata[:, 0].copy())
+            speech_duration = 0.0
+            audio_q = queue.Queue()
 
-        with sd.InputStream(
-            samplerate=self.SAMPLE_RATE,
-            channels=1,
-            dtype="float32",
-            blocksize=chunk_size,
-            device=None,
-            callback=mic_callback
-        ):
-            while self._running:
-                try:
-                    chunk = audio_q.get(timeout=0.5)
-                    rms = float(np.sqrt(np.mean(chunk ** 2)))
+            def mic_callback(indata, frames, t, status):
+                audio_q.put(indata[:, 0].copy())
 
-                    if rms > self.ENERGY_THRESHOLD:
-                        speech_duration += self.CHUNK_SECONDS
-                    else:
-                        speech_duration = 0.0  # reset on silence
+            with sd.InputStream(
+                samplerate=self.SAMPLE_RATE,
+                channels=1,
+                dtype="float32",
+                blocksize=chunk_size,
+                device=None,
+                callback=mic_callback
+            ):
+                while self._running and not self._paused:
+                    try:
+                        chunk = audio_q.get(timeout=0.5)
+                        rms = float(np.sqrt(np.mean(chunk ** 2)))
 
-                    if speech_duration >= self.TRIGGER_SECONDS:
+                        if rms > self.ENERGY_THRESHOLD:
+                            speech_duration += self.CHUNK_SECONDS
+                        else:
+                            speech_duration = 0.0  # reset on silence
+
+                        if speech_duration >= self.TRIGGER_SECONDS:
+                            speech_duration = 0.0
+                            now = time.time()
+                            if now - self._last_triggered >= self.COOLDOWN_SECONDS:
+                                self._last_triggered = now
+                                print(f"Fallback detector: speech detected ({rms:.4f} RMS) — triggering")
+                                self.callback()
+
+                    except queue.Empty:
                         speech_duration = 0.0
-                        now = time.time()
-                        if now - self._last_triggered >= self.COOLDOWN_SECONDS:
-                            self._last_triggered = now
-                            print(f"Fallback detector: speech detected ({rms:.4f} RMS) — triggering")
-                            self.callback()
-
-                except queue.Empty:
-                    speech_duration = 0.0
-                    continue
+                        continue

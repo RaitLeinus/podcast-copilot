@@ -10,6 +10,7 @@ import threading
 import time
 import os
 import subprocess
+import concurrent.futures
 from collections import deque
 
 import rumps
@@ -22,7 +23,7 @@ from transcriber import Transcriber
 from explainer import Explainer
 
 SAMPLE_RATE = 16000
-BUFFER_DURATION_SECONDS = 20
+BUFFER_DURATION_SECONDS = 30
 CAPTURE_USER_COMMAND_DURATION = 3.0
 
 
@@ -155,19 +156,56 @@ class PodcastCopilot(rumps.App):
         print("Wake word detected — triggering explanation")
         threading.Thread(target=self._do_explain, daemon=True).start()
 
-    def _capture_user_command(self, duration=4.0):
-        """Record a short mic clip to capture what the user said after the wake word."""
+    def _capture_user_command(self, max_duration=4.0):
+        """Record mic with VAD:
+        - Stops ~0.6s after speech ends
+        - Stops after 1.5s if no speech detected at all (user said nothing)
+        - Hard cap at max_duration
+        """
         import sounddevice as sd
-        default_device = sd.query_devices(kind="input")
-        print(f"Recording user command via: {default_device['name']}")
-        frames = sd.rec(
-            int(duration * SAMPLE_RATE),
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype="float32"
-        )
-        sd.wait()
-        return frames.flatten()
+        chunk_seconds = 0.05  # 50ms chunks
+        chunk_size = int(SAMPLE_RATE * chunk_seconds)
+        silence_threshold = 0.015
+        silence_needed = int(0.6 / chunk_seconds)   # 0.6s post-speech silence → stop
+        pre_speech_timeout = int(0.8 / chunk_seconds)  # 0.8s with no speech → give up
+        max_chunks = int(max_duration / chunk_seconds)
+
+        speech_confirm_needed = int(0.15 / chunk_seconds)  # 150ms sustained to confirm speech
+
+        recorded = []
+        speech_started = False
+        speech_confirm_count = 0
+        silence_count = 0
+        pre_speech_count = 0
+
+        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=chunk_size) as stream:
+            for _ in range(max_chunks):
+                chunk, _ = stream.read(chunk_size)
+                chunk = chunk.flatten()
+                rms = float(np.sqrt(np.mean(chunk ** 2)))
+                recorded.append(chunk)
+
+                if rms > silence_threshold:
+                    silence_count = 0
+                    pre_speech_count = 0
+                    if not speech_started:
+                        speech_confirm_count += 1
+                        if speech_confirm_count >= speech_confirm_needed:
+                            speech_started = True
+                elif speech_started:
+                    speech_confirm_count = 0
+                    silence_count += 1
+                    if silence_count >= silence_needed:
+                        print(f"VAD: end of speech, stopped after {len(recorded) * chunk_seconds:.1f}s")
+                        break
+                else:
+                    speech_confirm_count = 0
+                    pre_speech_count += 1
+                    if pre_speech_count >= pre_speech_timeout:
+                        print("VAD: no speech detected, stopping early")
+                        break
+
+        return np.concatenate(recorded) if recorded else np.zeros(0, dtype=np.float32)
 
     def _do_explain(self):
         """
@@ -182,18 +220,9 @@ class PodcastCopilot(rumps.App):
         """
         self.is_explaining = True
 
-        # Pause media first so podcast audio doesn't bleed into mic command capture
-        self._control_media("pause")  # let audio fully stop
-
-        # Chime signals the user to speak their command
-        self.set_status("Listening...", "👂")
-        subprocess.Popen(["afplay", "/System/Library/Sounds/Tink.aiff"])
-
-        # Capture user command now that it's quiet
-        user_command_audio = self._capture_user_command(duration=CAPTURE_USER_COMMAND_DURATION)
-        self.set_status("Transcribing...", "⏳")
-
-        # Snapshot the buffered audio RIGHT NOW before it rolls further
+        # Pause media and snapshot buffer immediately — buffer is system audio only,
+        # safe to snapshot before mic recording starts
+        self._control_media("pause")
         audio_snapshot = self.audio_buffer.get_audio()
         buffer_seconds = len(audio_snapshot) / SAMPLE_RATE
         print(f"Audio snapshot: {buffer_seconds:.1f}s")
@@ -205,10 +234,39 @@ class PodcastCopilot(rumps.App):
             self.set_status("Buffering locally...", "🔴")
             return
 
-        # --- FIRST API CALL: Whisper transcription ---
+        # Start Whisper on the buffer immediately — runs during command recording
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        print(f"Submitting {buffer_seconds:.0f}s buffer to Whisper...")
+        future_transcript = pool.submit(self.transcriber.transcribe, audio_snapshot)
+
+        # Pause wake detector to free the mic before command recording
+        if self.wake_detector:
+            self.wake_detector.pause()
+
+        # Chime — also gives Porcupine's stream time to fully close before we open a new one
+        self.set_status("Listening...", "👂")
+        subprocess.Popen(["afplay", "/System/Library/Sounds/Tink.aiff"])
+        time.sleep(0.3)  # wait for chime to finish + mic to be released by Porcupine
+        user_command_audio = self._capture_user_command(max_duration=CAPTURE_USER_COMMAND_DURATION)
+
+        self.set_status("Transcribing...", "⏳")
+
+        # Resume wake detector now that we're done with the mic
+        if self.wake_detector:
+            self.wake_detector.resume()
+
+        # Submit command transcription — buffer Whisper may already be done by now
+        future_command = pool.submit(
+            self.transcriber.transcribe,
+            user_command_audio,
+            "explain, what is, tell me about, who is, why did, how does",
+            "en"
+        )
+        pool.shutdown(wait=True)
+        
+
         try:
-            print(f"Sending {buffer_seconds:.0f}s of buffered audio to Whisper...")
-            transcript = self.transcriber.transcribe(audio_snapshot)
+            transcript = future_transcript.result()
             print(f"Transcript:\n{transcript}")
         except Exception as e:
             print(f"Transcription error: {e}")
@@ -225,14 +283,9 @@ class PodcastCopilot(rumps.App):
             self.set_status("Buffering locally...", "🔴")
             return
 
-        # Transcribe user's spoken command to extract optional focus topic
         focus = None
         try:
-            user_command = self.transcriber.transcribe(
-                user_command_audio,
-                prompt="explain, what is, tell me about, who is, why did, how does",
-                language="en"
-            ).strip()
+            user_command = future_command.result().strip()
             print(f"User command: {user_command!r}")
             if user_command:
                 focus = user_command

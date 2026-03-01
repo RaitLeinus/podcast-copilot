@@ -18,7 +18,7 @@ Rules:
 
 
 class Explainer:
-    def __init__(self, model="gpt-4o"):
+    def __init__(self, model="gpt-4o-mini"):
         self.model = model
         self._client = None
 
