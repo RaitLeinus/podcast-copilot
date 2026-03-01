@@ -332,8 +332,27 @@ class PodcastCopilot(rumps.App):
                 pass
 
     def _speak(self, text):
-        """Speak text using macOS built-in TTS."""
+        """Speak text using OpenAI TTS (tts-1), falling back to macOS say."""
+        import tempfile
         print(f"\n💬 EXPLANATION:\n{text}\n")
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if api_key:
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=api_key)
+                response = client.audio.speech.create(
+                    model="tts-1",
+                    voice="nova",
+                    input=text
+                )
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                    tmp_path = f.name
+                    f.write(response.content)
+                subprocess.run(["afplay", tmp_path], check=True)
+                os.unlink(tmp_path)
+                return
+            except Exception as e:
+                print(f"OpenAI TTS error: {e}, falling back to say")
         try:
             subprocess.run(["say", "-v", "Daniel", "-r", "185", text], check=True)
         except Exception as e:
