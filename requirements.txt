@@ -8,6 +8,10 @@ rumps>=0.4.0
 sounddevice>=0.4.6
 numpy>=1.24.0
 
+# System audio capture via ScreenCaptureKit (macOS 13+, no BlackHole needed)
+# Requires one-time Screen Recording permission grant
+pyobjc-framework-ScreenCaptureKit>=10.0
+
 # OpenAI API (Whisper + GPT-4o)
 # NOTE: Only called when you say "explain that" — never during passive listening
 openai>=1.0.0
