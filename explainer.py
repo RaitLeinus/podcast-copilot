@@ -2,6 +2,7 @@
 explainer.py - Uses GPT-4o to explain podcast content based on recent transcript context.
 """
 
+import base64
 import os
 from openai import OpenAI
 
@@ -72,3 +73,39 @@ class Explainer:
                 )
             # For other errors, re-raise so the caller can handle them as appropriate
             raise
+
+    def explain_audio_stream(self, transcript_context: str, focus: str = None):
+        """
+        Stream a spoken explanation as raw PCM16 audio chunks (24kHz, mono).
+        Yields bytes objects. Uses gpt-4o-audio-preview to combine generation + TTS in one pass.
+        """
+        if not transcript_context.strip():
+            return
+
+        if focus:
+            user_message = (
+                f"Recent podcast transcript:\n---\n{transcript_context}\n---\n\n"
+                f'The listener asked: "{focus}"\n'
+            )
+        else:
+            user_message = (
+                f"Recent podcast transcript:\n---\n{transcript_context}\n---\n\n"
+            )
+
+        response = self.client.chat.completions.create(
+            model="gpt-4o-audio-preview",
+            modalities=["text", "audio"],
+            audio={"voice": "nova", "format": "pcm16"},
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            stream=True,
+        )
+        for chunk in response:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta.model_dump()
+            audio = delta.get("audio") or {}
+            if audio.get("data"):
+                yield base64.b64decode(audio["data"])

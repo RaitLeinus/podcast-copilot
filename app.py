@@ -292,10 +292,10 @@ class PodcastCopilot(rumps.App):
         except Exception:
             pass  # no focus — explain the most recent topic
 
-        # --- SECOND API CALL: GPT-4o explanation ---
+        # --- SECOND API CALL: GPT-4o audio stream (generation + TTS in one pass) ---
         self.set_status("Explaining...", "💬")
         try:
-            explanation = self.explainer.explain(transcript, focus=focus)
+            self._speak_stream(self.explainer.explain_audio_stream(transcript, focus=focus))
         except Exception as e:
             print(f"Explanation error: {e}")
             self._speak("Sorry, I had trouble generating an explanation.")
@@ -303,9 +303,6 @@ class PodcastCopilot(rumps.App):
             self.is_explaining = False
             self.set_status("Buffering locally...", "🔴")
             return
-
-        # Speak the explanation aloud
-        self._speak(explanation)
 
         # Resume playback
         time.sleep(0.3)
@@ -357,6 +354,19 @@ class PodcastCopilot(rumps.App):
             subprocess.run(["say", "-v", "Daniel", "-r", "185", text], check=True)
         except Exception as e:
             print(f"TTS error: {e}")
+
+    def _speak_stream(self, chunk_iter):
+        """Play streaming PCM16 audio chunks (24kHz mono) from gpt-4o-audio-preview."""
+        import sounddevice as sd
+        stream = sd.OutputStream(samplerate=24000, channels=1, dtype="int16")
+        stream.start()
+        try:
+            for pcm_bytes in chunk_iter:
+                if pcm_bytes:
+                    stream.write(np.frombuffer(pcm_bytes, dtype=np.int16))
+        finally:
+            stream.stop()
+            stream.close()
 
     @rumps.clicked("🔊 Test Explain")
     def test_explain(self, sender):
