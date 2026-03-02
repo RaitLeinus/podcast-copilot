@@ -1,6 +1,6 @@
 # 🎙 Podcast Copilot
 
-A Mac menu bar app that listens to whatever you're playing (Spotify, YouTube, any app) and explains content on voice command. Say **"explain that"** and it pauses, explains what you just heard, then resumes.
+A Mac menu bar app that listens to whatever you're playing (Spotify, YouTube, any app) and explains content on voice command. Say **"explain"** (optionally followed by a topic like "explain the inflation rate") and it pauses, explains what you just heard, then resumes.
 
 ## How It Works
 
@@ -11,20 +11,21 @@ System audio (Spotify/YouTube/Chrome)
         ↓
   Rolling 2-min audio buffer  ← stored in RAM only, nothing sent anywhere
         ↓ (only when wake word fires)
-  Whisper API  ←  first API call, only on demand
+  Whisper API  ←  transcribes the buffered podcast audio
         ↓
-  GPT-4o  ←  second API call
-        ↓
-  macOS "say" speaks the explanation aloud
+  GPT-4o audio  ←  generates + speaks explanation in one streaming pass
         ↓
   Resume playback
 
 
-Microphone → Porcupine (on-device) → wake word trigger
-             (no audio leaves your machine)
+Microphone → Porcupine (on-device) → wake word "explain"
+             (no audio leaves your machine for wake word detection)
+
+After wake word fires:
+  Microphone → Whisper API  ←  transcribes your optional follow-up topic
 ```
 
-**Privacy model:** The podcast audio never leaves your computer until you explicitly ask for an explanation. The wake word runs 100% on-device. Only when you say "explain that" does ~2 minutes of buffered audio get sent to Whisper.
+**Privacy model:** The podcast audio never leaves your computer until you explicitly ask for an explanation. The wake word runs 100% on-device. Only when you say "explain" does ~2 minutes of buffered audio get sent to Whisper.
 
 ---
 
@@ -52,18 +53,19 @@ pip install -r requirements.txt
 
 ### 3. Set up Porcupine wake word (recommended)
 
-Porcupine runs fully on-device with ~50ms latency.
+Porcupine runs fully on-device with ~50ms latency. A bundled wake word model (`explain_en_mac_v4_0_0.ppn`) is included — you just need a free API key to activate it.
 
 1. Free account at https://console.picovoice.ai/ → copy your **Access Key**
-2. Go to **Console → Wake Word** → create a new wake word (e.g. "hey copilot" or "explain that")
-3. Download the generated `.ppn` model file for Mac
-4. Set environment variables:
+2. Set the environment variable:
    ```bash
    export PORCUPINE_ACCESS_KEY=your-access-key
-   export PORCUPINE_MODEL_PATH=/path/to/hey_copilot_mac.ppn
    ```
 
-> **No Porcupine?** The app falls back to energy-based detection — it triggers when you speak for ~1.5 seconds. Works fine in quiet environments but has no actual phrase recognition.
+That's it — the bundled "explain" wake word model is picked up automatically.
+
+> **Custom wake word?** Create one in the Picovoice Console, download the `.ppn` for Mac, and set `PORCUPINE_MODEL_PATH=/path/to/your_model.ppn`.
+
+> **No Porcupine?** The app falls back to energy-based detection — it triggers when you speak for ~1.5 seconds. Works fine in quiet environments but has no phrase recognition.
 
 ### 4. Set your OpenAI API key
 
@@ -85,11 +87,11 @@ A 🎙 icon appears in the menu bar. Click **▶ Start Listening**, then play an
 
 The menu shows a live buffer counter (e.g. "Buffer: 1m 45s captured") so you know how much context is available.
 
-**To get an explanation:** say your wake word (or speak for ~1.5s if using fallback). The app will:
+**To get an explanation:** say **"explain"** (wait for the chime, then optionally add context). The app will:
 1. Immediately pause playback
-2. Send the buffered audio to Whisper (~2–5 seconds)
-3. Send the transcript to GPT-4o (~1–2 seconds)
-4. Speak the explanation aloud via macOS TTS
+2. Play a chime and listen for your follow-up (e.g. "the NATO founding" or "who is Milton Friedman")
+3. Send buffered audio + your command to Whisper in parallel
+4. Stream the explanation as audio directly from GPT-4o (starts speaking within ~1s)
 5. Resume playback
 
 ---
@@ -100,8 +102,9 @@ API calls only happen when you trigger an explanation:
 
 | Call | Cost |
 |------|------|
-| Whisper — 2 min of audio | ~$0.012 |
-| GPT-4o — explanation | ~$0.01 |
+| Whisper — 2 min of podcast audio | ~$0.012 |
+| Whisper — your voice command (~3s) | ~$0.001 |
+| GPT-4o audio — explanation + speech | ~$0.01 |
 | **Per explanation** | **~$0.02** |
 
 50 explanations ≈ $1. Zero cost while passively listening.
@@ -134,12 +137,13 @@ The `base.en` model is ~140MB and runs on CPU in ~5–10 seconds for 2 minutes o
 
 ```
 podcast-copilot/
-├── app.py              # Menu bar app, orchestrates everything
-├── audio_buffer.py     # Thread-safe rolling RAM buffer
-├── audio_capture.py    # System audio capture via BlackHole
-├── wake_word.py        # Porcupine + fallback energy detector
-├── transcriber.py      # Whisper API (+ local faster-whisper option)
-├── explainer.py        # GPT-4o explanation
+├── app.py                        # Menu bar app, orchestrates everything
+├── audio_buffer.py               # Thread-safe rolling RAM buffer
+├── audio_capture.py              # System audio capture via BlackHole
+├── wake_word.py                  # Porcupine + fallback energy detector
+├── transcriber.py                # Whisper API (+ local faster-whisper option)
+├── explainer.py                  # GPT-4o audio streaming explanation
+├── explain_en_mac_v4_0_0.ppn     # Bundled Porcupine wake word model
 └── requirements.txt
 ```
 
@@ -151,7 +155,7 @@ podcast-copilot/
 → Make sure BlackHole is set as part of a Multi-Output Device and that Multi-Output Device is selected as your Mac sound output in System Settings → Sound.
 
 **Wake word not triggering**
-→ If using Porcupine, check that PORCUPINE_ACCESS_KEY and PORCUPINE_MODEL_PATH are set correctly. If using fallback, speak clearly for ~1.5 seconds.
+→ Check that `PORCUPINE_ACCESS_KEY` is set. If using fallback, speak clearly for ~1.5 seconds.
 
 **Microphone permission denied**
 → System Settings → Privacy & Security → Microphone → enable Terminal (or your Python app).
@@ -160,4 +164,4 @@ podcast-copilot/
 → The app sends the F8 media key via AppleScript. Check System Settings → Privacy & Security → Accessibility → allow Terminal. Falls back to direct Spotify AppleScript if F8 fails.
 
 **Explanation is about the wrong thing**
-→ Whisper is transcribing everything including ads. The GPT-4o prompt focuses on the most recent topic — if you triggered mid-ad, try again a few seconds into the content.
+→ Say "explain" followed by the specific topic you want after the chime (e.g. "explain the Marshall Plan"). This focuses GPT on that topic within the transcript context.
