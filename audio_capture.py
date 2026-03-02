@@ -1,12 +1,9 @@
 """
-audio_capture.py - Captures system audio.
+audio_capture.py - Captures system audio via ScreenCaptureKit.
 
-Backends (tried in order):
-1. ScreenCaptureKit (macOS 13+, requires pyobjc-framework-ScreenCaptureKit):
-   No virtual device needed — one-time Screen Recording permission grant.
-   pip install pyobjc-framework-ScreenCaptureKit
-2. BlackHole virtual audio device:
-   Requires blackhole-2ch + Multi-Output Device setup in Audio MIDI Setup.
+ScreenCaptureKit (macOS 13+) captures system audio directly —
+no virtual audio device needed. Requires one-time Screen Recording
+permission grant and pyobjc-framework-ScreenCaptureKit.
 """
 
 import platform
@@ -16,17 +13,6 @@ import ctypes.util
 
 import numpy as np
 import sounddevice as sd
-
-
-# ── Shared helpers ──────────────────────────────────────────────────────────────
-
-def find_blackhole_device():
-    """Find BlackHole virtual audio input device index."""
-    for i, device in enumerate(sd.query_devices()):
-        if "blackhole" in device.get("name", "").lower():
-            if device.get("max_input_channels", 0) > 0:
-                return i, device["name"]
-    return None, None
 
 
 def find_input_device(name: str):
@@ -43,20 +29,6 @@ def list_input_devices():
         for i, d in enumerate(sd.query_devices())
         if d.get("max_input_channels", 0) > 0
     ]
-
-
-# ── ScreenCaptureKit backend ────────────────────────────────────────────────────
-
-def _sck_is_available():
-    """True if running macOS 13+ and pyobjc-framework-ScreenCaptureKit is installed."""
-    parts = platform.mac_ver()[0].split(".")
-    if not parts or int(parts[0]) < 13:
-        return False
-    try:
-        import ScreenCaptureKit  # noqa: F401
-        return True
-    except ImportError:
-        return False
 
 
 class _SCKAudioCapture:
@@ -179,8 +151,6 @@ class _SCKAudioCapture:
         self._delegate = delegate
 
         # ── Get shareable content ───────────────────────────────────────────────
-        # SCKit completion handlers fire on a GCD concurrent queue, so plain
-        # threading.Event.wait() works — no run-loop spinning needed.
         result = {}
         done = threading.Event()
 
@@ -207,8 +177,6 @@ class _SCKAudioCapture:
         # ── Configure audio stream ──────────────────────────────────────────────
         # A display filter is required even for audio-only capture.
         config = SCKit.SCStreamConfiguration.alloc().init()
-        # pyobjc marks several SCStreamConfiguration properties as read-only;
-        # use explicit setters to bypass that.
         config.setCapturesAudio_(True)
         config.setSampleRate_(float(sample_rate))
         config.setChannelCount_(1)
@@ -247,7 +215,7 @@ class _SCKAudioCapture:
             raise RuntimeError(f"ScreenCaptureKit: stream failed to start: {start_err['e']}")
 
         self._sck_stream = stream
-        print(f"✓ ScreenCaptureKit: capturing system audio at {sample_rate} Hz (no BlackHole needed)")
+        print(f"✓ ScreenCaptureKit: capturing system audio at {sample_rate} Hz")
 
     def stop(self):
         if self._sck_stream is None:
@@ -259,58 +227,32 @@ class _SCKAudioCapture:
         self._delegate = None
 
 
-# ── AudioCapture (public API, auto-selects backend) ─────────────────────────────
-
 class AudioCapture:
-    def __init__(self, sample_rate: int = 16000, chunk_seconds: float = 0.5):
+    def __init__(self, sample_rate: int = 16000):
         self.sample_rate = sample_rate
-        self.chunk_size = int(sample_rate * chunk_seconds)
-        self._sck_backend = None
-        self._bh_stream = None
+        self._backend = None
 
     def start(self, callback):
         """
-        Start capturing system audio.
+        Start capturing system audio via ScreenCaptureKit.
         callback(chunk: np.ndarray) is called with float32 mono chunks at self.sample_rate.
-        Tries ScreenCaptureKit first; falls back to BlackHole if unavailable.
         """
-        if _sck_is_available():
-            try:
-                backend = _SCKAudioCapture(self.sample_rate, callback)
-                backend.start()
-                self._sck_backend = backend
-                return
-            except Exception as exc:
-                print(f"⚠ ScreenCaptureKit failed ({exc})\n  Falling back to BlackHole.")
+        parts = platform.mac_ver()[0].split(".")
+        if not parts or int(parts[0]) < 13:
+            raise RuntimeError("ScreenCaptureKit requires macOS 13+")
+        try:
+            import ScreenCaptureKit  # noqa: F401
+        except ImportError:
+            raise RuntimeError(
+                "pyobjc-framework-ScreenCaptureKit not installed.\n"
+                "Run: pip install pyobjc-framework-ScreenCaptureKit"
+            )
 
-        # BlackHole fallback
-        device_index, device_name = find_blackhole_device()
-        if device_index is None:
-            print("⚠  BlackHole not found — system audio capture won't work.")
-            print("   Option A (easier): pip install pyobjc-framework-ScreenCaptureKit")
-            print("   Option B: brew install blackhole-2ch + Multi-Output Device setup")
-            print()
-            print("   Available input devices:")
-            for idx, name in list_input_devices():
-                print(f"     [{idx}] {name}")
-        else:
-            print(f"✓ Capturing system audio via BlackHole: [{device_index}] {device_name}")
-
-        self._bh_stream = sd.InputStream(
-            device=device_index,
-            samplerate=self.sample_rate,
-            channels=1,
-            dtype="float32",
-            blocksize=self.chunk_size,
-            callback=lambda indata, frames, t, status: callback(indata[:, 0].copy()),
-        )
-        self._bh_stream.start()
+        backend = _SCKAudioCapture(self.sample_rate, callback)
+        backend.start()
+        self._backend = backend
 
     def stop(self):
-        if self._sck_backend:
-            self._sck_backend.stop()
-            self._sck_backend = None
-        if self._bh_stream:
-            self._bh_stream.stop()
-            self._bh_stream.close()
-            self._bh_stream = None
+        if self._backend:
+            self._backend.stop()
+            self._backend = None

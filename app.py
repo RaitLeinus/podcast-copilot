@@ -261,7 +261,7 @@ class PodcastCopilot(rumps.App):
             return
 
         if not transcript.strip():
-            speak("Couldn't make out what was being said. Check that BlackHole is set up correctly.")
+            speak("Couldn't make out what was being said. Check your Screen Recording permission.")
             control_media("play")
             self.is_explaining = False
             self.set_status("Buffering locally...", "🔴")

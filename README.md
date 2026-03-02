@@ -7,7 +7,7 @@ A Mac menu bar app that listens to whatever you're playing (Spotify, YouTube, an
 ```
 System audio (Spotify/YouTube/Chrome)
         ↓
-  BlackHole virtual audio device
+  ScreenCaptureKit (macOS 13+)
         ↓
   Rolling 2-min audio buffer  ← stored in RAM only, nothing sent anywhere
         ↓ (only when wake word fires)
@@ -31,25 +31,17 @@ After wake word fires:
 
 ## Setup
 
-### 1. Install BlackHole (system audio capture)
-
-```bash
-brew install blackhole-2ch
-```
-
-Or download from https://existential.audio/blackhole/
-
-**Create a Multi-Output Device so you still hear audio:**
-1. Open **Audio MIDI Setup** (Applications → Utilities)
-2. Click **+** → **Create Multi-Output Device**
-3. Check both **BlackHole 2ch** and your normal output (speakers/headphones)
-4. Right-click the Multi-Output Device → **Use This Device for Sound Output**
-
-### 2. Install Python dependencies
+### 1. Install Python dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
+
+### 2. Grant Screen Recording permission
+
+ScreenCaptureKit captures system audio directly — no virtual audio device needed.
+
+System Settings → Privacy & Security → Screen Recording → enable your terminal app.
 
 ### 3. Set up Porcupine wake word (recommended)
 
@@ -139,7 +131,7 @@ The `base.en` model is ~140MB and runs on CPU in ~5–10 seconds for 2 minutes o
 podcast-copilot/
 ├── app.py                        # Menu bar app, orchestrates everything
 ├── audio_buffer.py               # Thread-safe rolling RAM buffer
-├── audio_capture.py              # System audio capture via BlackHole
+├── audio_capture.py              # System audio capture via ScreenCaptureKit
 ├── wake_word.py                  # Porcupine + fallback energy detector
 ├── transcriber.py                # Whisper API (+ local faster-whisper option)
 ├── explainer.py                  # GPT-4o audio streaming explanation
@@ -152,7 +144,7 @@ podcast-copilot/
 ## Troubleshooting
 
 **No audio captured / empty transcripts**
-→ Make sure BlackHole is set as part of a Multi-Output Device and that Multi-Output Device is selected as your Mac sound output in System Settings → Sound.
+→ Make sure Screen Recording permission is granted for your terminal app in System Settings → Privacy & Security → Screen Recording.
 
 **Wake word not triggering**
 → Check that `PORCUPINE_ACCESS_KEY` is set. If using fallback, speak clearly for ~1.5 seconds.
