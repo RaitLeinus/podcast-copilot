@@ -104,7 +104,10 @@ class PodcastCopilot(rumps.App):
 
         # Choose wake word detector based on what's configured
         porcupine_key = os.environ.get("PORCUPINE_ACCESS_KEY")
-        porcupine_model = os.environ.get("PORCUPINE_MODEL_PATH")
+        _bundled_model = os.path.join(os.path.dirname(os.path.abspath(__file__)), "explain_en_mac_v4_0_0.ppn")
+        porcupine_model = os.environ.get("PORCUPINE_MODEL_PATH") or (
+            _bundled_model if os.path.exists(_bundled_model) else None
+        )
 
         if porcupine_key and porcupine_model:
             print("✓ Using Porcupine wake word detector (on-device, fast)")
