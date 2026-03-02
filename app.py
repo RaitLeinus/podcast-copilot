@@ -11,21 +11,23 @@ import time
 import os
 import subprocess
 import concurrent.futures
-from collections import deque
+
+import numpy as np
 
 import rumps
-import numpy as np
 
 from audio_buffer import RollingAudioBuffer
 from audio_capture import AudioCapture
 from wake_word import PorcupineWakeWordDetector, FallbackWakeWordDetector
 from transcriber import Transcriber
 from explainer import Explainer
+from speaker import speak, speak_stream
+from media_control import control_media
+from settings import save_env, load_env
 
 SAMPLE_RATE = 16000
 BUFFER_DURATION_SECONDS = 30
 CAPTURE_USER_COMMAND_DURATION = 3.0
-
 
 
 class PodcastCopilot(rumps.App):
@@ -159,57 +161,6 @@ class PodcastCopilot(rumps.App):
         print("Wake word detected — triggering explanation")
         threading.Thread(target=self._do_explain, daemon=True).start()
 
-    def _capture_user_command(self, max_duration=4.0):
-        """Record mic with VAD:
-        - Stops ~0.6s after speech ends
-        - Stops after 1.5s if no speech detected at all (user said nothing)
-        - Hard cap at max_duration
-        """
-        import sounddevice as sd
-        chunk_seconds = 0.05  # 50ms chunks
-        chunk_size = int(SAMPLE_RATE * chunk_seconds)
-        silence_threshold = 0.015
-        silence_needed = int(0.6 / chunk_seconds)   # 0.6s post-speech silence → stop
-        pre_speech_timeout = int(0.8 / chunk_seconds)  # 0.8s with no speech → give up
-        max_chunks = int(max_duration / chunk_seconds)
-
-        speech_confirm_needed = int(0.15 / chunk_seconds)  # 150ms sustained to confirm speech
-
-        recorded = []
-        speech_started = False
-        speech_confirm_count = 0
-        silence_count = 0
-        pre_speech_count = 0
-
-        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=chunk_size) as stream:
-            for _ in range(max_chunks):
-                chunk, _ = stream.read(chunk_size)
-                chunk = chunk.flatten()
-                rms = float(np.sqrt(np.mean(chunk ** 2)))
-                recorded.append(chunk)
-
-                if rms > silence_threshold:
-                    silence_count = 0
-                    pre_speech_count = 0
-                    if not speech_started:
-                        speech_confirm_count += 1
-                        if speech_confirm_count >= speech_confirm_needed:
-                            speech_started = True
-                elif speech_started:
-                    speech_confirm_count = 0
-                    silence_count += 1
-                    if silence_count >= silence_needed:
-                        print(f"VAD: end of speech, stopped after {len(recorded) * chunk_seconds:.1f}s")
-                        break
-                else:
-                    speech_confirm_count = 0
-                    pre_speech_count += 1
-                    if pre_speech_count >= pre_speech_timeout:
-                        print("VAD: no speech detected, stopping early")
-                        break
-
-        return np.concatenate(recorded) if recorded else np.zeros(0, dtype=np.float32)
-
     def _do_explain(self):
         """
         Core flow:
@@ -225,14 +176,14 @@ class PodcastCopilot(rumps.App):
 
         # Pause media and snapshot buffer immediately — buffer is system audio only,
         # safe to snapshot before mic recording starts
-        self._control_media("pause")
+        control_media("pause")
         audio_snapshot = self.audio_buffer.get_audio()
         buffer_seconds = len(audio_snapshot) / SAMPLE_RATE
         print(f"Audio snapshot: {buffer_seconds:.1f}s")
 
         if buffer_seconds < 5:
-            self._speak("I don't have enough audio context yet. Try again after listening for a bit.")
-            self._control_media("play")
+            speak("I don't have enough audio context yet. Try again after listening for a bit.")
+            control_media("play")
             self.is_explaining = False
             self.set_status("Buffering locally...", "🔴")
             return
@@ -249,12 +200,10 @@ class PodcastCopilot(rumps.App):
         self.set_status("Listening...", "👂")
         subprocess.Popen(["afplay", "/System/Library/Sounds/Tink.aiff"])
 
-        if self.wake_detector and hasattr(self.wake_detector, "get_capture_audio"):
-            user_command_audio = self.wake_detector.get_capture_audio(
-                max_duration=CAPTURE_USER_COMMAND_DURATION
-            )
-        else:
-            user_command_audio = self._capture_user_command(max_duration=CAPTURE_USER_COMMAND_DURATION)
+        user_command_audio = self.wake_detector.get_capture_audio(
+            max_duration=CAPTURE_USER_COMMAND_DURATION,
+            pre_speech_timeout=2.0
+        )
 
         self.set_status("Transcribing...", "⏳")
 
@@ -266,22 +215,21 @@ class PodcastCopilot(rumps.App):
             "en"
         )
         pool.shutdown(wait=True)
-        
 
         try:
             transcript = future_transcript.result()
             print(f"Transcript:\n{transcript}")
         except Exception as e:
             print(f"Transcription error: {e}")
-            self._speak("Sorry, transcription failed. Check your API key and internet connection.")
-            self._control_media("play")
+            speak("Sorry, transcription failed. Check your API key and internet connection.")
+            control_media("play")
             self.is_explaining = False
             self.set_status("Buffering locally...", "🔴")
             return
 
         if not transcript.strip():
-            self._speak("Couldn't make out what was being said. Check that BlackHole is set up correctly.")
-            self._control_media("play")
+            speak("Couldn't make out what was being said. Check that BlackHole is set up correctly.")
+            control_media("play")
             self.is_explaining = False
             self.set_status("Buffering locally...", "🔴")
             return
@@ -298,78 +246,21 @@ class PodcastCopilot(rumps.App):
         # --- SECOND API CALL: GPT-4o audio stream (generation + TTS in one pass) ---
         self.set_status("Explaining...", "💬")
         try:
-            self._speak_stream(self.explainer.explain_audio_stream(transcript, focus=focus))
+            speak_stream(self.explainer.explain_audio_stream(transcript, focus=focus))
         except Exception as e:
             print(f"Explanation error: {e}")
-            self._speak("Sorry, I had trouble generating an explanation.")
-            self._control_media("play")
+            speak("Sorry, I had trouble generating an explanation.")
+            control_media("play")
             self.is_explaining = False
             self.set_status("Buffering locally...", "🔴")
             return
 
         # Resume playback
         time.sleep(0.3)
-        self._control_media("play")
+        control_media("play")
 
         self.is_explaining = False
         self.set_status("Buffering locally...", "🔴")
-
-    def _control_media(self, action):
-        """Pause or resume media via F8 media key (works for Spotify, YouTube, Chrome, etc.)"""
-        script = 'tell application "System Events" to key code 16'
-        try:
-            subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
-        except Exception:
-            pass  # No Accessibility permission — Spotify AppleScript fallback below
-            applescript = (
-                'tell application "Spotify" to pause'
-                if action == "pause"
-                else 'tell application "Spotify" to play'
-            )
-            try:
-                subprocess.run(["osascript", "-e", applescript], capture_output=True)
-            except Exception:
-                pass
-
-    def _speak(self, text):
-        """Speak text using OpenAI TTS (tts-1), falling back to macOS say."""
-        import tempfile
-        print(f"\n💬 EXPLANATION:\n{text}\n")
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if api_key:
-            try:
-                from openai import OpenAI
-                client = OpenAI(api_key=api_key)
-                response = client.audio.speech.create(
-                    model="tts-1",
-                    voice="nova",
-                    input=text
-                )
-                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                    tmp_path = f.name
-                    f.write(response.content)
-                subprocess.run(["afplay", tmp_path], check=True)
-                os.unlink(tmp_path)
-                return
-            except Exception as e:
-                print(f"OpenAI TTS error: {e}, falling back to say")
-        try:
-            subprocess.run(["say", "-v", "Daniel", "-r", "185", text], check=True)
-        except Exception as e:
-            print(f"TTS error: {e}")
-
-    def _speak_stream(self, chunk_iter):
-        """Play streaming PCM16 audio chunks (24kHz mono) from gpt-4o-audio-preview."""
-        import sounddevice as sd
-        stream = sd.OutputStream(samplerate=24000, channels=1, dtype="int16")
-        stream.start()
-        try:
-            for pcm_bytes in chunk_iter:
-                if pcm_bytes:
-                    stream.write(np.frombuffer(pcm_bytes, dtype=np.int16))
-        finally:
-            stream.stop()
-            stream.close()
 
     @rumps.clicked("🔊 Test Explain")
     def test_explain(self, sender):
@@ -389,7 +280,7 @@ class PodcastCopilot(rumps.App):
         )
         try:
             explanation = self.explainer.explain(test_transcript)
-            self._speak(explanation)
+            speak(explanation)
         except Exception as e:
             rumps.alert("Test Error", str(e))
         self.set_status(
@@ -409,7 +300,7 @@ class PodcastCopilot(rumps.App):
         ).run()
         if response.clicked and response.text:
             os.environ["OPENAI_API_KEY"] = response.text
-            _save_env("OPENAI_API_KEY", response.text)
+            save_env("OPENAI_API_KEY", response.text)
             rumps.notification("Saved", "OpenAI API key saved", "")
 
         response2 = rumps.Window(
@@ -422,7 +313,7 @@ class PodcastCopilot(rumps.App):
         ).run()
         if response2.clicked and response2.text:
             os.environ["PORCUPINE_ACCESS_KEY"] = response2.text
-            _save_env("PORCUPINE_ACCESS_KEY", response2.text)
+            save_env("PORCUPINE_ACCESS_KEY", response2.text)
 
         response3 = rumps.Window(
             message="Porcupine model path (.ppn file — leave blank if not using Porcupine):",
@@ -434,37 +325,7 @@ class PodcastCopilot(rumps.App):
         ).run()
         if response3.clicked and response3.text:
             os.environ["PORCUPINE_MODEL_PATH"] = response3.text
-            _save_env("PORCUPINE_MODEL_PATH", response3.text)
-
-
-def _save_env(key, value):
-    """Persist key=value to ~/.podcast_copilot_env"""
-    env_file = os.path.expanduser("~/.podcast_copilot_env")
-    lines = []
-    found = False
-    if os.path.exists(env_file):
-        with open(env_file) as f:
-            for line in f:
-                if line.startswith(f"{key}="):
-                    lines.append(f"{key}={value}\n")
-                    found = True
-                else:
-                    lines.append(line)
-    if not found:
-        lines.append(f"{key}={value}\n")
-    with open(env_file, "w") as f:
-        f.writelines(lines)
-
-
-def load_env():
-    env_file = os.path.expanduser("~/.podcast_copilot_env")
-    if os.path.exists(env_file):
-        with open(env_file) as f:
-            for line in f:
-                line = line.strip()
-                if "=" in line and not line.startswith("#"):
-                    key, val = line.split("=", 1)
-                    os.environ.setdefault(key.strip(), val.strip())
+            save_env("PORCUPINE_MODEL_PATH", response3.text)
 
 
 if __name__ == "__main__":

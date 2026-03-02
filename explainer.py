@@ -57,7 +57,7 @@ class Explainer:
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_message}
                 ],
-                max_tokens=80,
+                max_tokens=40,
                 temperature=0.5
             )
             return response.choices[0].message.content.strip()
