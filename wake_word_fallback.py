@@ -38,8 +38,9 @@ class FallbackWakeWordDetector:
     # How many chunks to keep as pre-trigger history (2s at 50ms/chunk = 40)
     PRE_BUFFER_CHUNKS = 40
 
-    def __init__(self, callback):
+    def __init__(self, callback, device=None):
         self.callback = callback
+        self.device = device
         self._running = False
         self._stream = None
         self._last_triggered = 0.0
@@ -59,7 +60,7 @@ class FallbackWakeWordDetector:
             channels=1,
             dtype="float32",
             blocksize=chunk_size,
-            device=None,
+            device=self.device,
             callback=self._audio_callback,
         )
         self._stream.start()

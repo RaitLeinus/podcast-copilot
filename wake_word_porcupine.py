@@ -32,7 +32,7 @@ class PorcupineWakeWordDetector:
          PORCUPINE_MODEL_PATH=/path/to/your_wake_word.ppn
     """
 
-    def __init__(self, access_key: str, keyword_path: str, callback):
+    def __init__(self, access_key: str, keyword_path: str, callback, device=None):
         """
         access_key:   Picovoice access key
         keyword_path: path to .ppn wake word model file
@@ -53,6 +53,7 @@ class PorcupineWakeWordDetector:
             keyword_paths=[keyword_path]
         )
         self.callback = callback
+        self.device = device
         self._running = False
         self._stream = None
         self._capturing = False
@@ -69,7 +70,7 @@ class PorcupineWakeWordDetector:
             channels=1,
             dtype="int16",
             blocksize=frame_length,
-            device=None,
+            device=self.device,
             callback=self._audio_callback,
         )
         self._stream.start()

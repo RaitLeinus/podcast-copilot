@@ -17,7 +17,7 @@ import numpy as np
 import rumps
 
 from audio_buffer import RollingAudioBuffer
-from audio_capture import AudioCapture
+from audio_capture import AudioCapture, find_input_device, list_input_devices
 from wake_word import PorcupineWakeWordDetector, FallbackWakeWordDetector
 from transcriber import Transcriber
 from explainer import Explainer
@@ -37,12 +37,16 @@ class PodcastCopilot(rumps.App):
             quit_button=rumps.MenuItem("Quit Podcast Copilot", key="q")
         )
 
+        self.mic_menu = rumps.MenuItem("🎤 Microphone")
+        self._populate_mic_menu()
+
         self.menu = [
             rumps.MenuItem("Status: Idle", callback=None),
             rumps.MenuItem("Buffer: 0s captured", callback=None),
             rumps.separator,
             rumps.MenuItem("▶ Start Listening", callback=self.toggle_listening),
             rumps.separator,
+            self.mic_menu,
             rumps.MenuItem("⚙ Settings", callback=self.open_settings),
         ]
 
@@ -80,6 +84,26 @@ class PodcastCopilot(rumps.App):
             label = f"Buffer: {int(seconds) // 60}m {int(seconds) % 60}s captured"
         self.buffer_item.title = label
 
+    def _populate_mic_menu(self):
+        current = os.environ.get("MIC_DEVICE", "")
+        default_item = rumps.MenuItem("System Default", callback=self._select_mic)
+        default_item.state = 1 if not current else 0
+        items = [default_item, None]
+        for _, name in list_input_devices():
+            item = rumps.MenuItem(name, callback=self._select_mic)
+            item.state = 1 if (current and current.lower() in name.lower()) else 0
+            items.append(item)
+        self.mic_menu.update(items)
+
+    def _select_mic(self, sender):
+        for item in self.mic_menu.values():
+            if hasattr(item, "state"):
+                item.state = 0
+        sender.state = 1
+        value = "" if sender.title == "System Default" else sender.title
+        os.environ["MIC_DEVICE"] = value
+        save_env("MIC_DEVICE", value)
+
     @rumps.clicked("▶ Start Listening")
     def toggle_listening(self, sender):
         if not self.is_listening:
@@ -110,17 +134,27 @@ class PodcastCopilot(rumps.App):
             _bundled_model if os.path.exists(_bundled_model) else None
         )
 
+        mic_name = os.environ.get("MIC_DEVICE", "")
+        mic_device = None
+        if mic_name:
+            mic_device, found_name = find_input_device(mic_name)
+            if found_name:
+                print(f"✓ Using mic device: [{mic_device}] {found_name}")
+            else:
+                print(f"⚠ Mic device '{mic_name}' not found — using system default")
+
         if porcupine_key and porcupine_model:
             print("✓ Using Porcupine wake word detector (on-device, fast)")
             self.wake_detector = PorcupineWakeWordDetector(
                 access_key=porcupine_key,
                 keyword_path=porcupine_model,
-                callback=self.on_wake_word
+                callback=self.on_wake_word,
+                device=mic_device,
             )
         else:
             print("⚠ Porcupine not configured — using energy-based fallback detector.")
             print("  For better accuracy, see README for Porcupine setup.")
-            self.wake_detector = FallbackWakeWordDetector(callback=self.on_wake_word)
+            self.wake_detector = FallbackWakeWordDetector(callback=self.on_wake_word, device=mic_device)
 
         self.is_listening = True
         self.toggle_item.title = "⏹ Stop Listening"
@@ -299,6 +333,7 @@ class PodcastCopilot(rumps.App):
         if response3.clicked and response3.text:
             os.environ["PORCUPINE_MODEL_PATH"] = response3.text
             save_env("PORCUPINE_MODEL_PATH", response3.text)
+
 
 
 if __name__ == "__main__":

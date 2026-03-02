@@ -23,6 +23,14 @@ def find_blackhole_device():
     return None, None
 
 
+def find_input_device(name: str):
+    """Return (index, full_name) of the first input device matching name (case-insensitive substring)."""
+    for i, device in enumerate(sd.query_devices()):
+        if device.get("max_input_channels", 0) > 0 and name.lower() in device.get("name", "").lower():
+            return i, device["name"]
+    return None, None
+
+
 def list_input_devices():
     return [
         (i, d["name"])
