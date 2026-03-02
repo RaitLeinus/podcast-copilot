@@ -246,7 +246,6 @@ class PodcastCopilot(rumps.App):
         # Chime — also gives Porcupine's stream time to fully close before we open a new one
         self.set_status("Listening...", "👂")
         subprocess.Popen(["afplay", "/System/Library/Sounds/Tink.aiff"])
-        time.sleep(0.3)  # wait for chime to finish + mic to be released by Porcupine
         user_command_audio = self._capture_user_command(max_duration=CAPTURE_USER_COMMAND_DURATION)
 
         self.set_status("Transcribing...", "⏳")

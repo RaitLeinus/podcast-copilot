@@ -58,6 +58,8 @@ class PorcupineWakeWordDetector:
         self._running = False
         self._paused = False
         self._thread = None
+        self._stream_closed = threading.Event()
+        self._stream_closed.set()  # starts as "closed" (not yet opened)
         print(f"✓ Porcupine loaded — wake word model: {keyword_path}")
 
     def start(self):
@@ -71,8 +73,10 @@ class PorcupineWakeWordDetector:
             self.porcupine.delete()
 
     def pause(self):
-        """Close the mic stream temporarily (e.g. while command is being recorded)."""
+        """Signal pause and block until the mic stream is actually closed."""
+        self._stream_closed.clear()
         self._paused = True
+        self._stream_closed.wait(timeout=1.0)
 
     def resume(self):
         self._paused = False
@@ -83,6 +87,7 @@ class PorcupineWakeWordDetector:
 
         while self._running:
             if self._paused:
+                self._stream_closed.set()
                 time.sleep(0.05)
                 continue
 
@@ -101,6 +106,9 @@ class PorcupineWakeWordDetector:
                     if result >= 0:
                         print("✓ Porcupine: wake word detected!")
                         self.callback()
+            # stream is now closed — signal if we're pausing
+            if self._paused:
+                self._stream_closed.set()
 
 
 # ─── Fallback (no setup needed) ─────────────────────────────────────────────
