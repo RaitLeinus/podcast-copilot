@@ -239,20 +239,21 @@ class PodcastCopilot(rumps.App):
         print(f"Submitting {buffer_seconds:.0f}s buffer to Whisper...")
         future_transcript = pool.submit(self.transcriber.transcribe, audio_snapshot)
 
-        # Pause wake detector to free the mic before command recording
-        if self.wake_detector:
-            self.wake_detector.pause()
+        # Prime the capture queue before the chime so no audio is missed
+        if self.wake_detector and hasattr(self.wake_detector, "start_capture"):
+            self.wake_detector.start_capture()
 
-        # Chime — also gives Porcupine's stream time to fully close before we open a new one
         self.set_status("Listening...", "👂")
         subprocess.Popen(["afplay", "/System/Library/Sounds/Tink.aiff"])
-        user_command_audio = self._capture_user_command(max_duration=CAPTURE_USER_COMMAND_DURATION)
+
+        if self.wake_detector and hasattr(self.wake_detector, "get_capture_audio"):
+            user_command_audio = self.wake_detector.get_capture_audio(
+                max_duration=CAPTURE_USER_COMMAND_DURATION
+            )
+        else:
+            user_command_audio = self._capture_user_command(max_duration=CAPTURE_USER_COMMAND_DURATION)
 
         self.set_status("Transcribing...", "⏳")
-
-        # Resume wake detector now that we're done with the mic
-        if self.wake_detector:
-            self.wake_detector.resume()
 
         # Submit command transcription — buffer Whisper may already be done by now
         future_command = pool.submit(
