@@ -42,7 +42,6 @@ class PodcastCopilot(rumps.App):
             rumps.MenuItem("Buffer: 0s captured", callback=None),
             rumps.separator,
             rumps.MenuItem("▶ Start Listening", callback=self.toggle_listening),
-            rumps.MenuItem("🔊 Test Explain", callback=self.test_explain),
             rumps.separator,
             rumps.MenuItem("⚙ Settings", callback=self.open_settings),
         ]
@@ -261,32 +260,6 @@ class PodcastCopilot(rumps.App):
 
         self.is_explaining = False
         self.set_status("Buffering locally...", "🔴")
-
-    @rumps.clicked("🔊 Test Explain")
-    def test_explain(self, sender):
-        threading.Thread(target=self._test_explain_worker, daemon=True).start()
-
-    def _test_explain_worker(self):
-        self.set_status("Testing...", "💬")
-        test_transcript = (
-            "Today we're going to talk about transformer neural networks. "
-            "The key innovation is the attention mechanism, specifically self-attention, "
-            "which lets the model look at all positions in the input sequence simultaneously "
-            "rather than processing tokens one by one like older RNNs did. "
-            "This is what makes models like GPT and BERT so powerful. "
-            "The query, key, and value matrices are learned during training and allow "
-            "the model to figure out which parts of the input are most relevant "
-            "when generating each output token."
-        )
-        try:
-            explanation = self.explainer.explain(test_transcript)
-            speak(explanation)
-        except Exception as e:
-            rumps.alert("Test Error", str(e))
-        self.set_status(
-            "Idle" if not self.is_listening else "Buffering locally...",
-            "🎙" if not self.is_listening else "🔴"
-        )
 
     @rumps.clicked("⚙ Settings")
     def open_settings(self, sender):

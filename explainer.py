@@ -19,8 +19,7 @@ Rules:
 
 
 class Explainer:
-    def __init__(self, model="gpt-4o-mini"):
-        self.model = model
+    def __init__(self):
         self._client = None
 
     @property
@@ -31,48 +30,6 @@ class Explainer:
                 raise ValueError("OPENAI_API_KEY environment variable not set.")
             self._client = OpenAI(api_key=api_key)
         return self._client
-
-    def explain(self, transcript_context: str, focus: str = None) -> str:
-        """
-        Given recent transcript text, return a spoken explanation.
-        If focus is provided, explain that specific topic in the podcast context.
-        """
-        if not transcript_context.strip():
-            return "I don't have enough context to explain. Try listening for a bit longer."
-
-        if focus:
-            user_message = (
-                f"Recent podcast transcript:\n---\n{transcript_context}\n---\n\n"
-                f'The listener asked: "{focus}"\n'
-            )
-        else:
-            user_message = (
-                f"Recent podcast transcript:\n---\n{transcript_context}\n---\n\n"
-            )
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message}
-                ],
-                max_tokens=40,
-                temperature=0.5
-            )
-            return response.choices[0].message.content.strip()
-
-        except Exception as e:
-            err = str(e)
-            print(f"Explanation API error: {e}")
-            # If this is a quota / 429 error, return a friendly fallback message
-            if ("insufficient_quota" in err) or ("quota" in err.lower()) or ("429" in err):
-                return (
-                    "Sorry — I can't request an explanation right now because the OpenAI quota has been exceeded. "
-                    "Check your OpenAI plan/billing or set a different `OPENAI_API_KEY`."
-                )
-            # For other errors, re-raise so the caller can handle them as appropriate
-            raise
 
     def explain_audio_stream(self, transcript_context: str, focus: str = None):
         """
