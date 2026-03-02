@@ -62,6 +62,10 @@ class PorcupineWakeWordDetector:
 
     def start(self):
         self._running = True
+        self.start_stream()
+
+    def start_stream(self):
+        """Start (or restart) the mic audio stream."""
         frame_length = self.porcupine.frame_length
         sample_rate = self.porcupine.sample_rate
         print(f"✓ Porcupine listening on mic (frame={frame_length}, sr={sample_rate})")
@@ -75,12 +79,16 @@ class PorcupineWakeWordDetector:
         )
         self._stream.start()
 
-    def stop(self):
-        self._running = False
+    def stop_stream(self):
+        """Stop just the mic audio stream (keeps Porcupine engine alive)."""
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
             self._stream = None
+
+    def stop(self):
+        self._running = False
+        self.stop_stream()
         if hasattr(self, "porcupine"):
             self.porcupine.delete()
 

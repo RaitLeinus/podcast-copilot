@@ -54,6 +54,10 @@ class FallbackWakeWordDetector:
 
     def start(self):
         self._running = True
+        self.start_stream()
+
+    def start_stream(self):
+        """Start (or restart) the mic audio stream."""
         chunk_size = int(self.SAMPLE_RATE * self.CHUNK_SECONDS)
         self._stream = sd.InputStream(
             samplerate=self.SAMPLE_RATE,
@@ -65,12 +69,16 @@ class FallbackWakeWordDetector:
         )
         self._stream.start()
 
-    def stop(self):
-        self._running = False
+    def stop_stream(self):
+        """Stop just the mic audio stream."""
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
             self._stream = None
+
+    def stop(self):
+        self._running = False
+        self.stop_stream()
 
     def start_capture(self):
         """Begin buffering mic audio for command capture (stream already running).

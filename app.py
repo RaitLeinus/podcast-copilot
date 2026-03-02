@@ -104,6 +104,19 @@ class PodcastCopilot(rumps.App):
         os.environ["MIC_DEVICE"] = value
         save_env("MIC_DEVICE", value)
 
+        # Hot-swap mic on the wake detector if currently listening
+        if self.is_listening and self.wake_detector:
+            mic_device = None
+            if value:
+                mic_device, found_name = find_input_device(value)
+                if found_name:
+                    print(f"✓ Switching mic to: [{mic_device}] {found_name}")
+            else:
+                print("✓ Switching mic to: System Default")
+            self.wake_detector.device = mic_device
+            self.wake_detector.stop_stream()
+            self.wake_detector.start_stream()
+
     @rumps.clicked("▶ Start Listening")
     def toggle_listening(self, sender):
         if not self.is_listening:
