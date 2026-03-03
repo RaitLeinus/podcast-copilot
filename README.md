@@ -9,7 +9,7 @@ System audio (Spotify)
         ↓
   ScreenCaptureKit (macOS 13+)
         ↓
-  Rolling 2-min audio buffer  ← stored in RAM only, nothing sent anywhere
+  Rolling 30s audio buffer  ← stored in RAM only, nothing sent anywhere
         ↓ (only when wake word fires)
   Whisper API  ←  transcribes the buffered podcast audio
         ↓
@@ -72,7 +72,7 @@ Or enter it via the ⚙ Settings menu after launch.
 ## Running
 
 ```bash
-python app.py
+python run.py
 ```
 
 A 🎙 icon appears in the menu bar. Click **▶ Start Listening**, then play any podcast or video.
@@ -94,12 +94,12 @@ API calls only happen when you trigger an explanation:
 
 | Call | Cost |
 |------|------|
-| Whisper — 2 min of podcast audio | ~$0.012 |
+| Whisper — 30s of podcast audio | ~$0.003 |
 | Whisper — your voice command (~3s) | ~$0.001 |
 | GPT-4o audio — explanation + speech | ~$0.01 |
-| **Per explanation** | **~$0.02** |
+| **Per explanation** | **~$0.014** |
 
-50 explanations ≈ $1. Zero cost while passively listening.
+~70 explanations ≈ $1. Zero cost while passively listening.
 
 ---
 
@@ -107,13 +107,24 @@ API calls only happen when you trigger an explanation:
 
 ```
 podcast-copilot/
-├── app.py                        # Menu bar app, orchestrates everything
-├── audio_buffer.py               # Thread-safe rolling RAM buffer
-├── audio_capture.py              # System audio capture via ScreenCaptureKit
-├── wake_word.py                  # Porcupine + fallback energy detector
-├── transcriber.py                # Whisper API transcription
-├── explainer.py                  # GPT-4o audio streaming explanation
-├── explain_en_mac_v4_0_0.ppn     # Bundled Porcupine wake word model
+├── run.py                            # Entry point
+├── src/
+│   ├── app.py                        # Menu bar app, orchestrates everything
+│   ├── audio/
+│   │   ├── buffer.py                 # Thread-safe rolling RAM buffer
+│   │   ├── capture.py                # System audio via native Swift dylib
+│   │   ├── capture_helper.swift      # ScreenCaptureKit dylib source
+│   │   └── player.py                 # TTS playback (OpenAI + streaming PCM16)
+│   ├── wakeword/
+│   │   ├── porcupine.py              # Porcupine on-device wake word detection
+│   │   └── fallback.py               # Energy-based fallback detector
+│   ├── api/
+│   │   ├── transcriber.py            # Whisper API transcription
+│   │   └── explainer.py              # GPT-4o audio streaming explanation
+│   └── util/
+│       ├── media_control.py          # Pause/resume via F8 media key
+│       └── settings.py               # Persistent env file (~/.podcast_copilot_env)
+├── explain_en_mac_v4_0_0.ppn         # Bundled Porcupine wake word model
 └── requirements.txt
 ```
 
