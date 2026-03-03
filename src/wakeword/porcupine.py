@@ -1,15 +1,7 @@
 """
-wake_word_porcupine.py - On-device wake word detection via Picovoice Porcupine.
+porcupine.py - On-device wake word detection via Picovoice Porcupine.
 Detects a custom wake word (e.g. "explain that") with ~50ms latency.
 Runs entirely on-device — no audio ever leaves your machine.
-
-Setup:
-1. pip install pvporcupine
-2. Free account at https://console.picovoice.ai/ → get Access Key
-3. Create a custom wake word in the Picovoice Console → download .ppn file
-4. Set env vars:
-     PORCUPINE_ACCESS_KEY=your-key
-     PORCUPINE_MODEL_PATH=/path/to/your_wake_word.ppn
 """
 
 import queue
@@ -18,26 +10,8 @@ import sounddevice as sd
 
 
 class PorcupineWakeWordDetector:
-    """
-    On-device wake word detection via Picovoice Porcupine.
-    Detects a custom wake word (e.g. "hey copilot") with ~50ms latency.
-    Runs entirely on-device — no audio ever leaves your machine.
-
-    Setup:
-    1. pip install pvporcupine
-    2. Free account at https://console.picovoice.ai/ → get Access Key
-    3. Create a custom wake word in the Picovoice Console → download .ppn file
-    4. Set env vars:
-         PORCUPINE_ACCESS_KEY=your-key
-         PORCUPINE_MODEL_PATH=/path/to/your_wake_word.ppn
-    """
 
     def __init__(self, access_key: str, keyword_path: str, callback, device=None):
-        """
-        access_key:   Picovoice access key
-        keyword_path: path to .ppn wake word model file
-        callback:     function() called when wake word is detected
-        """
         try:
             import pvporcupine
         except ImportError:
@@ -47,7 +21,6 @@ class PorcupineWakeWordDetector:
                 "Then get a free key at https://console.picovoice.ai/"
             )
 
-        import pvporcupine
         self.porcupine = pvporcupine.create(
             access_key=access_key,
             keyword_paths=[keyword_path]

@@ -53,7 +53,6 @@ class PodcastCopilot(rumps.App):
         self.is_listening = False
         self.is_explaining = False
 
-        # THE KEY CHANGE: raw audio buffer in RAM, nothing goes to API until triggered
         self.audio_buffer = RollingAudioBuffer(
             sample_rate=SAMPLE_RATE,
             max_seconds=BUFFER_DURATION_SECONDS
@@ -236,7 +235,7 @@ class PodcastCopilot(rumps.App):
         future_transcript = pool.submit(self.transcriber.transcribe, audio_snapshot)
 
         # Prime the capture queue before the chime so no audio is missed
-        if self.wake_detector and hasattr(self.wake_detector, "start_capture"):
+        if self.wake_detector:
             self.wake_detector.start_capture()
 
         self.set_status("Listening...", "👂")
@@ -342,7 +341,6 @@ class PodcastCopilot(rumps.App):
         if response3.clicked and response3.text:
             os.environ["PORCUPINE_MODEL_PATH"] = response3.text
             save_env("PORCUPINE_MODEL_PATH", response3.text)
-
 
 
 def main():

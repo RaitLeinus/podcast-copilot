@@ -5,7 +5,7 @@ transcriber.py - Transcribes audio chunks using OpenAI Whisper API.
 import io
 import os
 import wave
-import tempfile
+
 import numpy as np
 from openai import OpenAI
 

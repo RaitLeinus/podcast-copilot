@@ -1,6 +1,6 @@
 /// audio_capture_lib — Native ScreenCaptureKit audio capture, loadable via ctypes.
 ///
-/// Build: swiftc -O -emit-library -framework ScreenCaptureKit -framework CoreMedia -module-name AudioCaptureHelper -o libaudio_capture.dylib audio_capture_helper.swift
+/// Build: swiftc -O -emit-library -framework ScreenCaptureKit -framework CoreMedia -module-name AudioCaptureHelper -o libaudio_capture.dylib capture_helper.swift
 ///
 /// C API for Python:
 ///   sck_start_capture(sample_rate, error_buf, error_buf_size) -> Int32  (0=ok, -1=error)

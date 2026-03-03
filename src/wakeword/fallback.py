@@ -1,5 +1,5 @@
 """
-wake_word_fallback.py - Energy-based speech detector, no setup required.
+fallback.py - Energy-based speech detector, no setup required.
 
 No wake word recognition — triggers when sustained speech is detected on the mic.
 Good enough for solo listening sessions in quiet environments.

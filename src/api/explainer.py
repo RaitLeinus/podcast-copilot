@@ -39,15 +39,9 @@ class Explainer:
         if not transcript_context.strip():
             return
 
+        user_message = f"Recent podcast transcript:\n---\n{transcript_context}\n---\n\n"
         if focus:
-            user_message = (
-                f"Recent podcast transcript:\n---\n{transcript_context}\n---\n\n"
-                f'The listener asked: "{focus}"\n'
-            )
-        else:
-            user_message = (
-                f"Recent podcast transcript:\n---\n{transcript_context}\n---\n\n"
-            )
+            user_message += f'The listener asked: "{focus}"\n'
 
         response = self.client.chat.completions.create(
             model="gpt-4o-audio-preview",

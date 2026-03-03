@@ -1,5 +1,5 @@
 """
-audio_capture.py - Captures system audio via a native Swift dylib.
+capture.py - Captures system audio via a native Swift dylib.
 
 The dylib uses ScreenCaptureKit directly (no pyobjc needed) and runs
 in-process so it inherits the terminal's Screen Recording permission.

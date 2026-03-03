@@ -1,5 +1,5 @@
 """
-speaker.py - Text-to-speech playback.
+player.py - Text-to-speech playback.
 
 speak(text)           — OpenAI TTS with macOS say fallback
 speak_stream(iter)    — Streams PCM16 audio chunks (24kHz mono) from gpt-4o-audio-preview
@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 
 import numpy as np
+import sounddevice as sd
 
 
 def speak(text: str):
@@ -41,7 +42,6 @@ def speak(text: str):
 
 def speak_stream(chunk_iter):
     """Play streaming PCM16 audio chunks (24kHz mono) from gpt-4o-audio-preview."""
-    import sounddevice as sd
     stream = sd.OutputStream(samplerate=24000, channels=1, dtype="int16")
     stream.start()
     try:
