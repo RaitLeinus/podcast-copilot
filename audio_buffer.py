@@ -21,9 +21,13 @@ class RollingAudioBuffer:
         self.max_samples = sample_rate * max_seconds
         self._buffer = deque(maxlen=self.max_samples)
         self._lock = threading.Lock()
+        self._debug_logged = False
 
     def append(self, chunk: np.ndarray):
         """Add a chunk of audio samples to the buffer. Thread-safe."""
+        if not self._debug_logged and len(chunk) > 0:
+            print(f"[DEBUG] First audio chunk received: {len(chunk)} samples, dtype={chunk.dtype}")
+            self._debug_logged = True
         with self._lock:
             self._buffer.extend(chunk)
 

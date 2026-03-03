@@ -1,8 +1,5 @@
 """
 transcriber.py - Transcribes audio chunks using OpenAI Whisper API.
-
-Uses the fast whisper-1 model via API. For fully offline/private use,
-swap with local faster-whisper: https://github.com/SYSTRAN/faster-whisper
 """
 
 import io
@@ -74,25 +71,3 @@ class Transcriber:
         except Exception as e:
             print(f"Transcription API error: {e}")
             return ""
-
-
-class LocalTranscriber:
-    """
-    Alternative: fully local transcription using faster-whisper.
-    No API key required. Install: pip install faster-whisper
-
-    Usage: replace Transcriber() with LocalTranscriber() in app.py
-    """
-    def __init__(self, model_size="base.en", device="cpu"):
-        try:
-            from faster_whisper import WhisperModel
-            self.model = WhisperModel(model_size, device=device, compute_type="int8")
-            print(f"✓ Local Whisper model loaded: {model_size}")
-        except ImportError:
-            raise ImportError(
-                "faster-whisper not installed. Run: pip install faster-whisper"
-            )
-
-    def transcribe(self, audio: np.ndarray) -> str:
-        segments, info = self.model.transcribe(audio, beam_size=5)
-        return " ".join(segment.text for segment in segments).strip()

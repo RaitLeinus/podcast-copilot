@@ -336,7 +336,7 @@ class PodcastCopilot(rumps.App):
             save_env("PORCUPINE_ACCESS_KEY", response2.text)
 
         response3 = rumps.Window(
-            message="Porcupine model path (.ppn file — leave blank if not using Porcupine):",
+            message="Custom Porcupine model path (.ppn file — leave blank to use default):",
             title="Podcast Copilot — Settings",
             default_text=os.environ.get("PORCUPINE_MODEL_PATH", ""),
             ok="Save",

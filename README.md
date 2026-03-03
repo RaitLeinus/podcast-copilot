@@ -1,11 +1,11 @@
 # 🎙 Podcast Copilot
 
-A Mac menu bar app that listens to whatever you're playing (Spotify, YouTube, any app) and explains content on voice command. Say **"explain"** (optionally followed by a topic like "explain the inflation rate") and it pauses, explains what you just heard, then resumes.
+A Mac menu bar app that listens to whatever you're playing in Spotify and explains content on voice command. Say **"explain"** (optionally followed by a topic like "explain the inflation rate") and it pauses, explains what you just heard, then resumes.
 
 ## How It Works
 
 ```
-System audio (Spotify/YouTube/Chrome)
+System audio (Spotify)
         ↓
   ScreenCaptureKit (macOS 13+)
         ↓
@@ -25,7 +25,7 @@ After wake word fires:
   Microphone → Whisper API  ←  transcribes your optional follow-up topic
 ```
 
-**Privacy model:** The podcast audio never leaves your computer until you explicitly ask for an explanation. The wake word runs 100% on-device. Only when you say "explain" does ~2 minutes of buffered audio get sent to Whisper.
+**Privacy model:** The podcast audio never leaves your computer until you explicitly ask for an explanation. The wake word runs 100% on-device. Only when you say "explain" does ~30 seconds of buffered audio get sent to Whisper.
 
 ---
 
@@ -103,28 +103,6 @@ API calls only happen when you trigger an explanation:
 
 ---
 
-## Fully Offline Option
-
-Replace Whisper API with local transcription:
-
-```bash
-pip install faster-whisper
-```
-
-In `app.py`, change:
-```python
-self.transcriber = Transcriber()
-```
-to:
-```python
-from transcriber import LocalTranscriber
-self.transcriber = LocalTranscriber(model_size="base.en")
-```
-
-The `base.en` model is ~140MB and runs on CPU in ~5–10 seconds for 2 minutes of audio. Use `small.en` for better accuracy, `tiny.en` for speed.
-
----
-
 ## Project Structure
 
 ```
@@ -133,7 +111,7 @@ podcast-copilot/
 ├── audio_buffer.py               # Thread-safe rolling RAM buffer
 ├── audio_capture.py              # System audio capture via ScreenCaptureKit
 ├── wake_word.py                  # Porcupine + fallback energy detector
-├── transcriber.py                # Whisper API (+ local faster-whisper option)
+├── transcriber.py                # Whisper API transcription
 ├── explainer.py                  # GPT-4o audio streaming explanation
 ├── explain_en_mac_v4_0_0.ppn     # Bundled Porcupine wake word model
 └── requirements.txt
