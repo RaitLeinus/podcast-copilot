@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Bash(xcodebuild -project PodcastCopilot.xcodeproj -scheme PodcastCopilot -configuration Debug build)",
+      "Bash(swift build)"
+    ]
+  }
+}

@@ -10,7 +10,6 @@ import platform
 import threading
 import ctypes
 import ctypes.util
-import uuid
 
 import numpy as np
 import sounddevice as sd
@@ -133,24 +132,20 @@ class _SCKAudioCapture:
         # CMSampleBufferRef is a CFTypeRef — the ObjC runtime passes it as an
         # object reference (@), not a raw void pointer (^v).  Using ^v corrupts
         # argument marshalling and causes a segfault.
-        # ObjC class names are global; use a unique name so stop/start works.
-        _cls_name = f"_AudioDelegate_{uuid.uuid4().hex[:8]}"
-        _AudioDelegate = type(_cls_name, (NSObject,), {})
-
-        @objc.typedSelector(b"v@:@@q")
-        def _on_output(self, _stream, sample_buffer, output_type):
-            if output_type != 1:
-                return
-            try:
-                sb_ptr = ctypes.c_void_p(sample_buffer.pointerAsInteger)
-                chunk = _extract_pcm(sb_ptr)
-                if chunk is not None and len(chunk) > 0:
-                    callback(chunk)
-            except Exception:
-                import traceback
-                traceback.print_exc()
-
-        _AudioDelegate.stream_didOutputSampleBuffer_ofType_ = _on_output
+        class _AudioDelegate(NSObject):
+            @objc.typedSelector(b"v@:@@q")
+            def stream_didOutputSampleBuffer_ofType_(self, _stream, sample_buffer, output_type):
+                # output_type: SCStreamOutputTypeScreen=0, SCStreamOutputTypeAudio=1
+                if output_type != 1:
+                    return
+                try:
+                    sb_ptr = ctypes.c_void_p(sample_buffer.pointerAsInteger)
+                    chunk = _extract_pcm(sb_ptr)
+                    if chunk is not None and len(chunk) > 0:
+                        callback(chunk)
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
 
         delegate = _AudioDelegate.alloc().init()
         self._delegate = delegate
