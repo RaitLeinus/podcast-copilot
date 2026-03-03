@@ -16,14 +16,10 @@ import numpy as np
 
 import rumps
 
-from audio_buffer import RollingAudioBuffer
-from audio_capture import AudioCapture, find_input_device, list_input_devices
-from wake_word import PorcupineWakeWordDetector, FallbackWakeWordDetector
-from transcriber import Transcriber
-from explainer import Explainer
-from speaker import speak, speak_stream
-from media_control import control_media
-from settings import save_env, load_env
+from audio import RollingAudioBuffer, AudioCapture, find_input_device, list_input_devices, speak, speak_stream
+from wakeword import PorcupineWakeWordDetector, FallbackWakeWordDetector
+from api import Transcriber, Explainer
+from util import control_media, save_env, load_env
 
 SAMPLE_RATE = 16000
 BUFFER_DURATION_SECONDS = 30
@@ -349,7 +345,11 @@ class PodcastCopilot(rumps.App):
 
 
 
-if __name__ == "__main__":
+def main():
     load_env()
     app = PodcastCopilot()
     app.run()
+
+
+if __name__ == "__main__":
+    main()

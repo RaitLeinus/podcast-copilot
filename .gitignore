@@ -42,9 +42,8 @@ ENV/
 *.log
 logs/
 
-# Compiled Swift dylib (rebuild with build command in audio_capture.py)
-libaudio_capture.dylib
-audio_capture_helper
+# Compiled Swift dylib (rebuild with build command in audio/capture.py)
+*.dylib
 
 #
 .claude

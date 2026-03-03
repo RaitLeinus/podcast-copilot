@@ -8,8 +8,8 @@ rumps>=0.4.0
 sounddevice>=0.4.6
 numpy>=1.24.0
 
-# System audio capture uses a native Swift helper (no pyobjc needed)
-# Build with: swiftc -O -framework ScreenCaptureKit -framework CoreMedia -o audio_capture_helper audio_capture_helper.swift
+# System audio capture uses a native Swift dylib (no pyobjc needed)
+# Build: cd audio && swiftc -O -emit-library -target x86_64-apple-macosx14.0 -framework ScreenCaptureKit -framework CoreMedia -module-name AudioCaptureHelper -o libaudio_capture.dylib capture_helper.swift
 
 # OpenAI API (Whisper + GPT-4o)
 # NOTE: Only called when you say "explain that" — never during passive listening

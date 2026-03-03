@@ -1,0 +1,2 @@
+from wakeword.porcupine import PorcupineWakeWordDetector
+from wakeword.fallback import FallbackWakeWordDetector

@@ -4,11 +4,11 @@ audio_capture.py - Captures system audio via a native Swift dylib.
 The dylib uses ScreenCaptureKit directly (no pyobjc needed) and runs
 in-process so it inherits the terminal's Screen Recording permission.
 
-Build the dylib (one time):
+Build the dylib (one time, from the audio/ directory):
   swiftc -O -emit-library -target x86_64-apple-macosx14.0 \
     -framework ScreenCaptureKit -framework CoreMedia \
     -module-name AudioCaptureHelper \
-    -o libaudio_capture.dylib audio_capture_helper.swift
+    -o libaudio_capture.dylib capture_helper.swift
 
 Requires one-time Screen Recording permission grant:
   System Settings → Privacy & Security → Screen Recording → enable your terminal app.
@@ -45,11 +45,11 @@ def _load_dylib():
     if not os.path.isfile(dylib_path):
         raise RuntimeError(
             f"libaudio_capture.dylib not found at {dylib_path}.\n"
-            "Build it with:\n"
+            "Build it from the audio/ directory:\n"
             "  swiftc -O -emit-library -target x86_64-apple-macosx14.0 "
             "-framework ScreenCaptureKit -framework CoreMedia "
             "-module-name AudioCaptureHelper "
-            "-o libaudio_capture.dylib audio_capture_helper.swift"
+            "-o libaudio_capture.dylib capture_helper.swift"
         )
     lib = ctypes.CDLL(dylib_path)
     lib.sck_start_capture.restype = ctypes.c_int32
