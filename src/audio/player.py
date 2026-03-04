@@ -5,12 +5,11 @@ speak(text)           — OpenAI TTS with macOS say fallback
 speak_stream(iter)    — Streams PCM16 audio chunks (24kHz mono) from gpt-4o-audio-preview
 """
 
+import io
 import os
 import subprocess
 import tempfile
-
-import numpy as np
-import sounddevice as sd
+import wave
 
 
 def speak(text: str):
@@ -41,13 +40,26 @@ def speak(text: str):
 
 
 def speak_stream(chunk_iter):
-    """Play streaming PCM16 audio chunks (24kHz mono) from gpt-4o-audio-preview."""
-    stream = sd.OutputStream(samplerate=24000, channels=1, dtype="int16")
-    stream.start()
+    """Play streaming PCM16 audio chunks (24kHz mono) via afplay.
+
+    Collects all chunks into a WAV file, then plays via macOS afplay
+    which automatically uses the current system default output device.
+    """
+    chunks = []
+    for pcm_bytes in chunk_iter:
+        if pcm_bytes:
+            chunks.append(pcm_bytes)
+    if not chunks:
+        return
+    pcm_data = b"".join(chunks)
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        tmp_path = f.name
+        with wave.open(f, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(24000)
+            wf.writeframes(pcm_data)
     try:
-        for pcm_bytes in chunk_iter:
-            if pcm_bytes:
-                stream.write(np.frombuffer(pcm_bytes, dtype=np.int16))
+        subprocess.run(["afplay", tmp_path], check=True)
     finally:
-        stream.stop()
-        stream.close()
+        os.unlink(tmp_path)

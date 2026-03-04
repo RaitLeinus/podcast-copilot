@@ -31,6 +31,7 @@ def find_input_device(name: str):
     return None, None
 
 
+
 def list_input_devices():
     return [
         (i, d["name"])

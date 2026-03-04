@@ -13,6 +13,7 @@ import subprocess
 import concurrent.futures
 
 import numpy as np
+import sounddevice as sd
 
 import rumps
 
@@ -63,6 +64,9 @@ class PodcastCopilot(rumps.App):
         self.explainer = Explainer()
         self.wake_detector = None  # initialized on start
 
+        # Track default input device to detect changes
+        self._last_default_input = sd.default.device[0]
+
         # Update buffer display every 5 seconds
         self._buffer_timer = rumps.Timer(self._update_buffer_display, 5)
         self._buffer_timer.start()
@@ -79,7 +83,54 @@ class PodcastCopilot(rumps.App):
             label = f"Buffer: {int(seconds) // 60}m {int(seconds) % 60}s captured"
         self.buffer_item.title = label
 
+        # Refresh devices: stop stream, re-enumerate PortAudio, restart stream
+        # PortAudio caches the device list — re-init is the only way to refresh
+        if self.is_listening and self.wake_detector:
+            try:
+                self.wake_detector.stop_stream()
+                sd._terminate()
+                sd._initialize()
+            except Exception:
+                pass
+
+            # Refresh mic menu if device list changed
+            try:
+                current_devices = frozenset(name for _, name in list_input_devices())
+                if not hasattr(self, '_last_known_devices') or current_devices != self._last_known_devices:
+                    self._last_known_devices = current_devices
+                    self._populate_mic_menu()
+            except Exception:
+                pass
+
+            # Re-resolve device after re-enumeration (indices change)
+            mic_name = os.environ.get("MIC_DEVICE", "")
+            if mic_name:
+                mic_device, _ = find_input_device(mic_name)
+                self.wake_detector.device = mic_device
+            else:
+                self.wake_detector.device = None
+
+            # Restart the stream
+            try:
+                self.wake_detector.start_stream()
+            except Exception as e:
+                print(f"Failed to restart mic stream: {e}")
+                self.set_status("Mic error — try Stop/Start", "⚠️")
+        else:
+            # Not listening — just refresh the menu
+            try:
+                sd._terminate()
+                sd._initialize()
+                current_devices = frozenset(name for _, name in list_input_devices())
+                if not hasattr(self, '_last_known_devices') or current_devices != self._last_known_devices:
+                    self._last_known_devices = current_devices
+                    self._populate_mic_menu()
+            except Exception:
+                pass
+
     def _populate_mic_menu(self):
+        if self.mic_menu._menu is not None:
+            self.mic_menu.clear()
         current = os.environ.get("MIC_DEVICE", "")
         default_item = rumps.MenuItem("System Default", callback=self._select_mic)
         default_item.state = 1 if not current else 0
@@ -151,6 +202,8 @@ class PodcastCopilot(rumps.App):
             else:
                 print(f"⚠ Mic device '{mic_name}' not found — using system default")
 
+        self._last_default_input = sd.default.device[0]
+
         if porcupine_key and porcupine_model:
             print("✓ Using Porcupine wake word detector (on-device, fast)")
             self.wake_detector = PorcupineWakeWordDetector(
@@ -162,7 +215,10 @@ class PodcastCopilot(rumps.App):
         else:
             print("⚠ Porcupine not configured — using energy-based fallback detector.")
             print("  For better accuracy, see README for Porcupine setup.")
-            self.wake_detector = FallbackWakeWordDetector(callback=self.on_wake_word, device=mic_device)
+            self.wake_detector = FallbackWakeWordDetector(
+                callback=self.on_wake_word,
+                device=mic_device,
+            )
 
         self.is_listening = True
         self.toggle_item.title = "⏹ Stop Listening"

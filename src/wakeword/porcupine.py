@@ -41,7 +41,6 @@ class PorcupineWakeWordDetector:
         """Start (or restart) the mic audio stream."""
         frame_length = self.porcupine.frame_length
         sample_rate = self.porcupine.sample_rate
-        print(f"✓ Porcupine listening on mic (frame={frame_length}, sr={sample_rate})")
         self._stream = sd.InputStream(
             samplerate=sample_rate,
             channels=1,
@@ -51,6 +50,7 @@ class PorcupineWakeWordDetector:
             callback=self._audio_callback,
         )
         self._stream.start()
+        print(f"✓ Porcupine listening on mic (frame={frame_length}, sr={sample_rate})")
 
     def stop_stream(self):
         """Stop just the mic audio stream (keeps Porcupine engine alive)."""
@@ -127,7 +127,7 @@ class PorcupineWakeWordDetector:
         self._capturing = False
         return np.concatenate(recorded) if recorded else np.zeros(0, dtype=np.float32)
 
-    def _audio_callback(self, indata, _frames, _time_info, _status):
+    def _audio_callback(self, indata, _frames, _time_info, status):
         pcm = indata[:, 0].copy()
         result = self.porcupine.process(pcm)
         if result >= 0:

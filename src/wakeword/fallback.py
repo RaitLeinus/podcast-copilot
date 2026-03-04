@@ -37,7 +37,6 @@ class FallbackWakeWordDetector:
 
     # How many chunks to keep as pre-trigger history (2s at 50ms/chunk = 40)
     PRE_BUFFER_CHUNKS = 40
-
     def __init__(self, callback, device=None):
         self.callback = callback
         self.device = device
@@ -150,7 +149,7 @@ class FallbackWakeWordDetector:
         self._capturing = False
         return np.concatenate(recorded) if recorded else np.zeros(0, dtype=np.float32)
 
-    def _audio_callback(self, indata, _frames, _time_info, _status):
+    def _audio_callback(self, indata, _frames, _time_info, status):
         chunk = indata[:, 0].copy()
 
         # Always maintain a rolling pre-trigger history
