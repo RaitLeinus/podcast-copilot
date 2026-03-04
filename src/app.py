@@ -28,14 +28,39 @@ CAPTURE_USER_COMMAND_DURATION = 3.0
 
 
 class PodcastCopilot(rumps.App):
+    # keep class-wide reference to the running instance for delegate callbacks
+    _instance = None
+    
     def __init__(self):
+        PodcastCopilot._instance = self
         super().__init__(
             "🎙",
             quit_button=rumps.MenuItem("Quit Podcast Copilot", key="q")
         )
 
-        self.mic_menu = rumps.MenuItem("🎤 Microphone")
+        self.mic_menu = rumps.MenuItem("🎤 Microphone", callback=self._on_mic_menu_click)
         self._populate_mic_menu()
+        # install delegate to refresh when menu opens (hovering triggers open event)
+        try:
+            from Foundation import NSObject
+
+            class _MicMenuDelegate(NSObject):
+                def menuWillOpen_(self, menu):
+                    # called just before the submenu appears; refresh device list
+                    try:
+                        self_ref = menu.delegate()  # not needed
+                    except Exception:
+                        pass
+                    PodcastCopilot._mic_menu_opened()
+
+            self._mic_menu_delegate = _MicMenuDelegate.alloc().init()
+            # the NSMenu object backing the MenuItem may be lazily created; ensure exist
+            if self.mic_menu._menu is None:
+                _ = self.mic_menu._menu
+            if self.mic_menu._menu is not None:
+                self.mic_menu._menu.setDelegate_(self._mic_menu_delegate)
+        except Exception as e:
+            print(f"Warning setting mic menu delegate: {e}")
 
         self.menu = [
             rumps.MenuItem("Status: Idle", callback=None),
@@ -64,16 +89,17 @@ class PodcastCopilot(rumps.App):
         self.explainer = Explainer()
         self.wake_detector = None  # initialized on start
 
-        # Track default input device to detect changes
-        self._last_default_input = sd.default.device[0]
-
         # Update buffer display every 5 seconds
         self._buffer_timer = rumps.Timer(self._update_buffer_display, 5)
         self._buffer_timer.start()
+        
+
 
     def set_status(self, text, icon="🎙"):
         self.title = icon
         self.status_item.title = f"Status: {text}"
+
+
 
     def _update_buffer_display(self, _=None):
         seconds = self.audio_buffer.duration_seconds
@@ -83,50 +109,40 @@ class PodcastCopilot(rumps.App):
             label = f"Buffer: {int(seconds) // 60}m {int(seconds) % 60}s captured"
         self.buffer_item.title = label
 
-        # Refresh devices: stop stream, re-enumerate PortAudio, restart stream
-        # PortAudio caches the device list — re-init is the only way to refresh
-        if self.is_listening and self.wake_detector:
-            try:
-                self.wake_detector.stop_stream()
-                sd._terminate()
-                sd._initialize()
-            except Exception:
-                pass
+    def _on_mic_menu_click(self, sender):
+        """Refresh device list when user clicks the mic menu."""
+        # full refresh path (same as hover)
+        self._mic_menu_opened()
 
-            # Refresh mic menu if device list changed
-            try:
-                current_devices = frozenset(name for _, name in list_input_devices())
-                if not hasattr(self, '_last_known_devices') or current_devices != self._last_known_devices:
-                    self._last_known_devices = current_devices
-                    self._populate_mic_menu()
-            except Exception:
-                pass
+    @staticmethod
+    def _mic_menu_opened():
+        # invoked when the mic submenu is about to open (either hover or click)
+        try:
+            sd._terminate()
+            sd._initialize()
+        except Exception as e:
+            print(f"Warning: sounddevice re-init failed: {e}")
+        try:
+            devices = sd.query_devices()
+            names = [d.get("name") for d in devices if d.get("max_input_channels",0)>0]
+            print(f"Mic menu refresh, available inputs: {names}")
+        except Exception as e:
+            print(f"Device enumeration error: {e}")
+        # we need a reference to the PodcastCopilot instance to call _populate_mic_menu
+        # delegate method will call this static helper, but actual refresh must be instance method
+        if PodcastCopilot._instance:
+            PodcastCopilot._instance._populate_mic_menu()
+            # restart audio capture if necessary
+            inst = PodcastCopilot._instance
+            if inst.is_listening and hasattr(inst, 'audio_capture'):
+                try:
+                    print("Restarting audio capture after device refresh...")
+                    inst.audio_capture.stop()
+                    inst.audio_capture.start(callback=inst.audio_buffer.append)
+                    print("✓ Audio capture restarted")
+                except Exception as e:
+                    print(f"❌ Failed to restart audio capture: {e}")
 
-            # Re-resolve device after re-enumeration (indices change)
-            mic_name = os.environ.get("MIC_DEVICE", "")
-            if mic_name:
-                mic_device, _ = find_input_device(mic_name)
-                self.wake_detector.device = mic_device
-            else:
-                self.wake_detector.device = None
-
-            # Restart the stream
-            try:
-                self.wake_detector.start_stream()
-            except Exception as e:
-                print(f"Failed to restart mic stream: {e}")
-                self.set_status("Mic error — try Stop/Start", "⚠️")
-        else:
-            # Not listening — just refresh the menu
-            try:
-                sd._terminate()
-                sd._initialize()
-                current_devices = frozenset(name for _, name in list_input_devices())
-                if not hasattr(self, '_last_known_devices') or current_devices != self._last_known_devices:
-                    self._last_known_devices = current_devices
-                    self._populate_mic_menu()
-            except Exception:
-                pass
 
     def _populate_mic_menu(self):
         if self.mic_menu._menu is not None:
@@ -135,10 +151,28 @@ class PodcastCopilot(rumps.App):
         default_item = rumps.MenuItem("System Default", callback=self._select_mic)
         default_item.state = 1 if not current else 0
         items = [default_item, None]
-        for _, name in list_input_devices():
-            item = rumps.MenuItem(name, callback=self._select_mic)
-            item.state = 1 if (current and current.lower() in name.lower()) else 0
-            items.append(item)
+        
+        # Get available devices, filtering out disconnected ones
+        try:
+            all_devices = list_input_devices()
+            # Filter: check if device actually has input channels available
+            available_devices = []
+            for idx, name in all_devices:
+                try:
+                    info = sd.query_devices(idx)
+                    if info.get("max_input_channels", 0) > 0:
+                        available_devices.append((idx, name))
+                except Exception:
+                    # Device failed to query — likely disconnected
+                    continue
+            
+            for _, name in available_devices:
+                item = rumps.MenuItem(name, callback=self._select_mic)
+                item.state = 1 if (current and current.lower() in name.lower()) else 0
+                items.append(item)
+        except Exception as e:
+            print(f"Error populating mic menu: {e}")
+        
         self.mic_menu.update(items)
 
     def _select_mic(self, sender):
@@ -147,6 +181,26 @@ class PodcastCopilot(rumps.App):
                 item.state = 0
         sender.state = 1
         value = "" if sender.title == "System Default" else sender.title
+        
+        # Validate the selected device exists before saving
+        if value:
+            mic_device, found_name = find_input_device(value)
+            if not found_name:
+                print(f"❌ Selected mic '{value}' is not available")
+                rumps.alert(
+                    title="Device Unavailable",
+                    message=f"The microphone '{value}' is not currently connected or available.",
+                    ok="OK"
+                )
+                # Reset to system default
+                sender.state = 0
+                default_item = self.mic_menu["System Default"]
+                if default_item:
+                    default_item.state = 1
+                os.environ["MIC_DEVICE"] = ""
+                save_env("MIC_DEVICE", "")
+                return
+        
         os.environ["MIC_DEVICE"] = value
         save_env("MIC_DEVICE", value)
 
@@ -157,11 +211,23 @@ class PodcastCopilot(rumps.App):
                 mic_device, found_name = find_input_device(value)
                 if found_name:
                     print(f"✓ Switching mic to: [{mic_device}] {found_name}")
+                else:
+                    # This shouldn't happen due to validation above, but just in case
+                    print(f"⚠ Mic '{value}' not found during switch")
+                    return
             else:
+                # For system default, use None to let sounddevice pick the default
+                mic_device = None
                 print("✓ Switching mic to: System Default")
-            self.wake_detector.device = mic_device
-            self.wake_detector.stop_stream()
-            self.wake_detector.start_stream()
+            try:
+                self.wake_detector.device = mic_device
+                self.wake_detector.stop_stream()
+                self.wake_detector.start_stream()
+                print(f"✓ Mic switched successfully to device {mic_device}")
+            except Exception as e:
+                print(f"❌ Failed to switch mic: {e}")
+                import traceback
+                traceback.print_exc()
 
     @rumps.clicked("▶ Start Listening")
     def toggle_listening(self, sender):
